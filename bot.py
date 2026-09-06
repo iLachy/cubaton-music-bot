@@ -1,6 +1,7 @@
 import os
 import sys
 import requests
+from datetime import datetime
 from ytmusicapi import YTMusic
 
 
@@ -101,51 +102,178 @@ def obtener_imagen(lanzamiento):
 # FECHA
 # ============================================================
 
-def obtener_fecha(lanzamiento):
+def obtener_fecha(lanzamiento, ytmusic):
 
-    posibles_campos = [
+    """
+    Intenta obtener la fecha real del lanzamiento.
+
+    Primero revisa los campos disponibles directamente
+    en el lanzamiento.
+
+    Si no existe, intenta consultar el detalle del
+    lanzamiento mediante su browseId.
+    """
+
+    campos_fecha = [
         "releaseDate",
         "release_date",
+        "release_date_text",
         "date"
     ]
 
-    fecha = None
+    # --------------------------------------------------------
+    # 1. Buscar fecha directamente
+    # --------------------------------------------------------
 
-    for campo in posibles_campos:
+    for campo in campos_fecha:
 
         valor = lanzamiento.get(campo)
 
         if valor:
-            fecha = valor
-            break
 
-    if not fecha:
-        return None
+            fecha = convertir_fecha(valor)
 
-    if not isinstance(fecha, str):
-        return None
+            if fecha:
+                return fecha
 
     # --------------------------------------------------------
-    # Formato esperado:
-    # YYYY-MM-DD
+    # 2. Consultar detalles mediante browseId
     # --------------------------------------------------------
 
-    partes = fecha.split("-")
+    browse_id = lanzamiento.get("browseId")
 
-    if len(partes) >= 3:
+    if browse_id:
 
         try:
 
-            año = int(partes[0])
-            mes = int(partes[1])
-            dia = int(partes[2])
+            print(
+                f"Consultando detalles del lanzamiento: "
+                f"{browse_id}"
+            )
 
-            return f"{dia}/{mes}/{año}"
+            detalle = ytmusic.get_album(
+                browse_id
+            )
 
-        except ValueError:
-            pass
+            # ------------------------------------------------
+            # Buscar campos de fecha en el detalle
+            # ------------------------------------------------
 
-    return fecha
+            for campo in campos_fecha:
+
+                valor = detalle.get(campo)
+
+                if valor:
+
+                    fecha = convertir_fecha(valor)
+
+                    if fecha:
+                        return fecha
+
+            # ------------------------------------------------
+            # Algunas respuestas pueden guardar la fecha
+            # dentro de otra estructura.
+            # ------------------------------------------------
+
+            if isinstance(detalle, dict):
+
+                for clave, valor in detalle.items():
+
+                    nombre = str(clave).lower()
+
+                    if (
+                        "date" in nombre
+                        or "release" in nombre
+                    ):
+
+                        fecha = convertir_fecha(valor)
+
+                        if fecha:
+                            return fecha
+
+        except Exception as error:
+
+            print(
+                "No fue posible obtener la fecha "
+                f"desde el detalle: {error}"
+            )
+
+    return None
+
+
+def convertir_fecha(valor):
+
+    """
+    Convierte distintos formatos posibles de fecha
+    a D/M/A.
+    """
+
+    if not isinstance(valor, str):
+        return None
+
+    valor = valor.strip()
+
+    # --------------------------------------------------------
+    # YYYY-MM-DD
+    # --------------------------------------------------------
+
+    try:
+
+        fecha = datetime.strptime(
+            valor[:10],
+            "%Y-%m-%d"
+        )
+
+        return (
+            f"{fecha.day}/"
+            f"{fecha.month}/"
+            f"{fecha.year}"
+        )
+
+    except ValueError:
+        pass
+
+    # --------------------------------------------------------
+    # YYYY/MM/DD
+    # --------------------------------------------------------
+
+    try:
+
+        fecha = datetime.strptime(
+            valor[:10],
+            "%Y/%m/%d"
+        )
+
+        return (
+            f"{fecha.day}/"
+            f"{fecha.month}/"
+            f"{fecha.year}"
+        )
+
+    except ValueError:
+        pass
+
+    # --------------------------------------------------------
+    # DD/MM/YYYY
+    # --------------------------------------------------------
+
+    try:
+
+        fecha = datetime.strptime(
+            valor[:10],
+            "%d/%m/%Y"
+        )
+
+        return (
+            f"{fecha.day}/"
+            f"{fecha.month}/"
+            f"{fecha.year}"
+        )
+
+    except ValueError:
+        pass
+
+    return None
 
 
 # ============================================================
@@ -197,7 +325,7 @@ def escapar_html(texto):
 # PUBLICAR EN TELEGRAM
 # ============================================================
 
-def enviar_publicacion(lanzamiento):
+def enviar_publicacion(lanzamiento, ytmusic):
 
     if not TELEGRAM_BOT_TOKEN:
 
@@ -224,9 +352,14 @@ def enviar_publicacion(lanzamiento):
         )
     )
 
-    fecha = obtener_fecha(lanzamiento)
+    fecha = obtener_fecha(
+        lanzamiento,
+        ytmusic
+    )
 
-    portada = obtener_imagen(lanzamiento)
+    portada = obtener_imagen(
+        lanzamiento
+    )
 
     url_youtube = obtener_url_youtube_music(
         lanzamiento
@@ -235,13 +368,15 @@ def enviar_publicacion(lanzamiento):
     # --------------------------------------------------------
     # MENSAJE
     #
-    # Usamos <blockquote> para crear la cita de Telegram.
-    # El título permanece en negrita.
+    # IMPORTANTE:
+    # El emoji 🎵 está DENTRO del blockquote junto al título.
+    #
+    # No dejamos líneas vacías entre los datos.
     # --------------------------------------------------------
 
     texto = (
-        f"🎤 <b>{artista}</b>\n\n"
-        f"🎵 <blockquote><b>{titulo}</b></blockquote>\n\n"
+        f"🎤 <b>{artista}</b>\n"
+        f"<blockquote>🎵 <b>{titulo}</b></blockquote>\n"
         f"📀 Tipo: {tipo}"
     )
 
@@ -265,7 +400,7 @@ def enviar_publicacion(lanzamiento):
     }
 
     # --------------------------------------------------------
-    # PREPARAR PETICIÓN
+    # TELEGRAM API
     # --------------------------------------------------------
 
     if portada:
@@ -298,10 +433,7 @@ def enviar_publicacion(lanzamiento):
         }
 
     # --------------------------------------------------------
-    # ENVIAR PETICIÓN
-    #
-    # json= hace que requests convierta correctamente
-    # reply_markup al formato JSON que Telegram espera.
+    # ENVIAR
     # --------------------------------------------------------
 
     respuesta = requests.post(
@@ -314,10 +446,6 @@ def enviar_publicacion(lanzamiento):
     print("Respuesta de Telegram:")
     print(respuesta.text)
     print()
-
-    # --------------------------------------------------------
-    # COMPROBAR
-    # --------------------------------------------------------
 
     if not respuesta.ok:
 
@@ -358,9 +486,14 @@ def main():
 
     try:
 
+        ytmusic = YTMusic()
+
         lanzamiento = obtener_ultimo_lanzamiento()
 
-        enviar_publicacion(lanzamiento)
+        enviar_publicacion(
+            lanzamiento,
+            ytmusic
+        )
 
     except Exception as error:
 
