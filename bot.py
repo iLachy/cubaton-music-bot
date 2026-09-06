@@ -1,320 +1,270 @@
+import os
+import sys
+import requests
 from ytmusicapi import YTMusic
-import time
-import re
 
 
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
 
-ytmusic = YTMusic()
+ARTIST_NAME = "Bebeshito"
+ARTIST_CHANNEL_ID = "UCpVfWS-cPOE2sYqsFuuP_Qg"
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHANNEL = "@Cubaton_Music"
 
 
 # ============================================================
-# 35 ARTISTAS DEFINITIVOS
+# FUNCIONES
 # ============================================================
 
-ARTISTS = {
-    "Bebeshito": "UCpVfWS-cPOE2sYqsFuuP_Qg",
-    "Charly & Johayron": "UCnwEtOQyXJUUuBhcTgImdfQ",
-    "Dany Ome": "UCJQEm9t4KjDn-I8Fahf4Uqw",
-    "Wampi": "UCbfzw8u1lCwDMv443StJEOw",
-    "El Taiger": "UCoYtt7bGCV5RyUweyQgqQ4A",
-    "Ja Rulay": "UCcaU4COep7mj8kbXwS24JFQ",
-    "L Kimii": "UCMyQosiL8iVUtXPIm1UZJQg",
-    "El Dray": "UC4kpn8y8QXYXmyDn8HJKD8Q",
-    "Mauro y El Pitu": "UCvN1mRFfAfWYTiIkM70qUWA",
-    "Yirow Y El Tingo": "UCEq3_5h1Xi_vLbytP7OzuNA",
-    "Nany La Kbra": "UCG4lSNdNx_LuLnN2EW6uWwQ",
-    "Ya Ice Dilan": "UC9aJbR9Q8nscvZaMw_cH4Ww",
-    "Rey Tony": "UCDhExL0uVtumv_DEjPPq5qg",
-    "Baby Maikol": "UCP5R6Mgbk_bgtgzZguLNKdA",
-    "Payaso X Ley": "UCauTaqBvFqqqJTu3B4Wc1GA",
-    "Kaly Y Kowa": "UCSfR51myQhs2ZcdzrWo0Z4w",
-    "Wildey": "UCmFS-VSa4Wf3F1wdWS-8p_g",
-    "Wow Popy": "UCtFkN8UFxT_MuNdySlfuFuA",
-    "Talent Fuego": "UC0dVmcXfNa7lVeUBve3_FXw",
-    "Mawell": "UCL6P-jUDZEKBA-Lb6WFccWg",
-    "Harryson": "UC2ihX5uoblnN4wsA-ayIAAA",
-    "El Chulo": "UCiT8VNdnpeYnCTPJZoqym9g",
-    "Fixty Ordara": "UCDHDCbVOQywsLCsCZ8PH-AA",
-    "El Kamel": "UCPnWcazEV7QM0H7qBx6NVXg",
-    "Velito el Bufón": "UCRA9cRfAJXuxDRcFnoB7pwg",
-    "Un Titico": "UCT2KiGFSPZIF3DR9UIN2fYw",
-    "Musteerifa": "UCiT8PzlQqtPC7lWFh3--4jw",
-    "Chocolate MC": "UCYVuThmAmbXxk1o9Un5Cc_w",
-    "El Chacal": "UCJt4IsSmUjqTaamhCJoKK_g",
-    "El Micha": "UCHhrMSqe_C1E_JBEz3mRlew",
-    "Yomil": "UCPfXwOpwRIbVsqqTsgt4i5g",
-    "Jacob Forever": "UCJ1-Pwsroy-gzMqlfKDF4Hg",
-    "Gente de Zona": "UCl2KQVc_GFH081i7b9CJQug",
-    "La Diosa": "UChbVOQHgq01JoHY4axuWV0A",
-    "Seidy La Niña": "UCFqYfgj_7h3ZUkBnyYS-TFg",
-}
-
-
-# ============================================================
-# FUNCIONES AUXILIARES
-# ============================================================
-
-def normalize(text):
+def obtener_ultimo_lanzamiento():
     """
-    Normaliza texto para poder comparar títulos.
+    Obtiene la información del artista desde YouTube Music
+    y selecciona el lanzamiento más reciente disponible.
     """
-    if not text:
-        return ""
 
-    text = text.lower()
+    print(f"Consultando YouTube Music: {ARTIST_NAME}")
 
-    replacements = {
-        "á": "a",
-        "é": "e",
-        "í": "i",
-        "ó": "o",
-        "ú": "u",
-        "ü": "u",
-        "ñ": "n",
+    ytmusic = YTMusic()
+
+    artista = ytmusic.get_artist(ARTIST_CHANNEL_ID)
+
+    albums = artista.get("albums", {})
+    singles = artista.get("singles", {})
+
+    lanzamientos = []
+
+    # --------------------------------------------------------
+    # Álbumes
+    # --------------------------------------------------------
+
+    if isinstance(albums, dict):
+        for item in albums.get("results", []):
+            if isinstance(item, dict):
+                item["_tipo_lanzamiento"] = "Álbum"
+                lanzamientos.append(item)
+
+    # --------------------------------------------------------
+    # Singles
+    # --------------------------------------------------------
+
+    if isinstance(singles, dict):
+        for item in singles.get("results", []):
+            if isinstance(item, dict):
+                item["_tipo_lanzamiento"] = "Single"
+                lanzamientos.append(item)
+
+    if not lanzamientos:
+        raise RuntimeError(
+            "No se encontraron lanzamientos para el artista."
+        )
+
+    # --------------------------------------------------------
+    # Mostrar los lanzamientos encontrados
+    # --------------------------------------------------------
+
+    print(f"Lanzamientos encontrados: {len(lanzamientos)}")
+
+    for i, item in enumerate(lanzamientos[:10], start=1):
+        titulo = item.get("title", "Sin título")
+        tipo = item.get("_tipo_lanzamiento", "Lanzamiento")
+        print(f"{i}. [{tipo}] {titulo}")
+
+    # --------------------------------------------------------
+    # El primer resultado de YouTube Music corresponde al
+    # lanzamiento más reciente dentro de cada categoría.
+    #
+    # Priorizamos singles porque el objetivo principal del
+    # canal son canciones nuevas.
+    # --------------------------------------------------------
+
+    if singles and isinstance(singles, dict):
+        resultados_singles = singles.get("results", [])
+
+        if resultados_singles:
+            lanzamiento = resultados_singles[0]
+            lanzamiento["_tipo_lanzamiento"] = "Single"
+            return lanzamiento
+
+    # Si no hay singles, utilizamos el álbum más reciente.
+
+    if albums and isinstance(albums, dict):
+        resultados_albums = albums.get("results", [])
+
+        if resultados_albums:
+            lanzamiento = resultados_albums[0]
+            lanzamiento["_tipo_lanzamiento"] = "Álbum"
+            return lanzamiento
+
+    raise RuntimeError(
+        "No fue posible determinar el lanzamiento más reciente."
+    )
+
+
+def obtener_imagen(lanzamiento):
+    """
+    Intenta obtener la mejor portada disponible.
+    """
+
+    thumbnails = lanzamiento.get("thumbnails", [])
+
+    if thumbnails and isinstance(thumbnails, list):
+
+        # Normalmente la última imagen es la de mayor resolución.
+        for thumbnail in reversed(thumbnails):
+
+            if isinstance(thumbnail, dict):
+                url = thumbnail.get("url")
+
+                if url:
+                    return url
+
+    return None
+
+
+def obtener_url_youtube_music(lanzamiento):
+    """
+    Construye la URL de YouTube Music utilizando el browseId
+    disponible en el lanzamiento.
+    """
+
+    browse_id = lanzamiento.get("browseId")
+
+    if browse_id:
+        return f"https://music.youtube.com/browse/{browse_id}"
+
+    video_id = lanzamiento.get("videoId")
+
+    if video_id:
+        return f"https://music.youtube.com/watch?v={video_id}"
+
+    return "https://music.youtube.com/"
+
+
+def enviar_publicacion(lanzamiento):
+    """
+    Envía la publicación al canal de Telegram.
+    """
+
+    if not TELEGRAM_BOT_TOKEN:
+        raise RuntimeError(
+            "No se encontró la variable TELEGRAM_BOT_TOKEN."
+        )
+
+    titulo = lanzamiento.get("title", "Sin título")
+    tipo = lanzamiento.get("_tipo_lanzamiento", "Lanzamiento")
+
+    portada = obtener_imagen(lanzamiento)
+    url_youtube = obtener_url_youtube_music(lanzamiento)
+
+    # --------------------------------------------------------
+    # TEXTO DE LA PUBLICACIÓN
+    # --------------------------------------------------------
+
+    texto = (
+        f"🎤 <b>{ARTIST_NAME}</b>\n"
+        f"🎵 <b>{titulo}</b>\n"
+        f"📀 Tipo: {tipo}"
+    )
+
+    # --------------------------------------------------------
+    # BOTÓN
+    # --------------------------------------------------------
+
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "▶️ Escuchar en YouTube Music",
+                    "url": url_youtube
+                }
+            ]
+        ]
     }
 
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-    text = re.sub(r"[^a-z0-9 ]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-
-    return text
-
-
-def get_title(item):
-    """
-    Obtiene el título de un resultado de YouTube Music.
-    """
-    if not isinstance(item, dict):
-        return None
-
-    return (
-        item.get("title")
-        or item.get("name")
+    telegram_url = (
+        f"https://api.telegram.org/bot"
+        f"{TELEGRAM_BOT_TOKEN}/sendPhoto"
     )
 
+    # --------------------------------------------------------
+    # PUBLICAR CON PORTADA
+    # --------------------------------------------------------
 
-def get_item_type(item):
-    """
-    Intenta determinar si es álbum, sencillo, canción, etc.
-    """
-    if not isinstance(item, dict):
-        return ""
+    if portada:
 
-    return (
-        item.get("type")
-        or item.get("resultType")
-        or ""
-    )
-
-
-def get_year(item):
-    """
-    Obtiene el año si YouTube Music lo proporciona.
-    """
-    if not isinstance(item, dict):
-        return ""
-
-    return (
-        item.get("year")
-        or item.get("releaseYear")
-        or ""
-    )
-
-
-def extract_results(data):
-    """
-    Convierte diferentes formatos de respuesta
-    de ytmusicapi en una lista.
-    """
-    if not data:
-        return []
-
-    if isinstance(data, dict):
-        data = data.get("results", [])
-
-    if not isinstance(data, list):
-        return []
-
-    return data
-
-
-# ============================================================
-# OBTENER INFORMACIÓN DEL ARTISTA
-# ============================================================
-
-def get_artist_info(artist_name, channel_id):
-
-    try:
-
-        info = ytmusic.get_artist(channel_id)
-
-        returned_name = (
-            info.get("name")
-            or info.get("artist")
-            or info.get("title")
-        )
-
-        subscribers = (
-            info.get("subscribers")
-            or info.get("subscriberCount")
-            or info.get("subscribersText")
-            or "?"
-        )
-
-        return {
-            "ok": True,
-            "name": returned_name,
-            "subscribers": subscribers,
-            "info": info,
+        datos = {
+            "chat_id": TELEGRAM_CHANNEL,
+            "photo": portada,
+            "caption": texto,
+            "parse_mode": "HTML",
+            "reply_markup": str(reply_markup).replace("'", '"')
         }
 
-    except Exception as e:
+        respuesta = requests.post(
+            telegram_url,
+            data=datos,
+            timeout=30
+        )
 
-        return {
-            "ok": False,
-            "name": None,
-            "subscribers": "?",
-            "info": {},
-            "error": str(e),
+    else:
+        # ----------------------------------------------------
+        # Si por alguna razón YouTube Music no proporciona
+        # portada, enviamos el mensaje igualmente.
+        # ----------------------------------------------------
+
+        telegram_url_text = (
+            f"https://api.telegram.org/bot"
+            f"{TELEGRAM_BOT_TOKEN}/sendMessage"
+        )
+
+        datos = {
+            "chat_id": TELEGRAM_CHANNEL,
+            "text": texto,
+            "parse_mode": "HTML",
+            "reply_markup": str(reply_markup).replace("'", '"')
         }
 
-
-# ============================================================
-# OBTENER LANZAMIENTOS VISIBLES
-# ============================================================
-
-def get_visible_releases(info):
-
-    releases = []
-
-    # Primero intentamos utilizar los elementos
-    # que ya vienen en get_artist().
-    for key in [
-        "albums",
-        "singles",
-    ]:
-
-        items = extract_results(
-            info.get(key)
+        respuesta = requests.post(
+            telegram_url_text,
+            data=datos,
+            timeout=30
         )
 
-        for item in items:
+    # --------------------------------------------------------
+    # COMPROBAR RESPUESTA
+    # --------------------------------------------------------
 
-            title = get_title(item)
+    if not respuesta.ok:
 
-            if not title:
-                continue
+        print("ERROR DE TELEGRAM")
+        print(respuesta.text)
 
-            releases.append({
-                "title": title,
-                "type": get_item_type(item),
-                "year": get_year(item),
-                "raw": item,
-            })
-
-    return releases
-
-
-# ============================================================
-# MOSTRAR LANZAMIENTOS
-# ============================================================
-
-def print_releases(releases):
-
-    if not releases:
-
-        print(
-            "  No se encontraron lanzamientos "
-            "en la respuesta inicial."
+        raise RuntimeError(
+            f"Telegram devolvió HTTP {respuesta.status_code}"
         )
 
-        return
+    resultado = respuesta.json()
 
-    for release in releases:
+    if not resultado.get("ok"):
+        print("Telegram rechazó la publicación:")
+        print(resultado)
 
-        title = release["title"]
-        year = release["year"]
-        item_type = release["type"]
-
-        extra = []
-
-        if year:
-            extra.append(str(year))
-
-        if item_type:
-            extra.append(str(item_type))
-
-        if extra:
-            print(
-                "  - "
-                + title
-                + " ["
-                + " | ".join(extra)
-                + "]"
-            )
-        else:
-            print(
-                "  - "
-                + title
-            )
-
-
-# ============================================================
-# PROCESAR ARTISTA
-# ============================================================
-
-def process_artist(artist_name, channel_id):
+        raise RuntimeError(
+            "Telegram no pudo enviar la publicación."
+        )
 
     print()
-    print("=" * 70)
-    print(artist_name)
-    print("=" * 70)
-
-    result = get_artist_info(
-        artist_name,
-        channel_id
-    )
-
-    if not result["ok"]:
-
-        print("ERROR AL CONSULTAR ARTISTA")
-        print(result["error"])
-
-        return {
-            "artist": artist_name,
-            "ok": False,
-            "releases": [],
-        }
-
-    print(
-        "Nombre YouTube Music:",
-        result["name"]
-    )
-
-    print(
-        "Seguidores:",
-        result["subscribers"]
-    )
-
-    releases = get_visible_releases(
-        result["info"]
-    )
-
-    print()
-    print("Lanzamientos visibles:")
-
-    print_releases(releases)
-
-    return {
-        "artist": artist_name,
-        "ok": True,
-        "releases": releases,
-    }
+    print("==========================================")
+    print("PUBLICACIÓN ENVIADA CORRECTAMENTE")
+    print("==========================================")
+    print(f"Artista: {ARTIST_NAME}")
+    print(f"Título: {titulo}")
+    print(f"Tipo: {tipo}")
+    print(f"YouTube Music: {url_youtube}")
+    print("==========================================")
 
 
 # ============================================================
@@ -323,98 +273,38 @@ def process_artist(artist_name, channel_id):
 
 def main():
 
-    print("=" * 70)
-    print("CUBATON MUSIC")
-    print("PRUEBA DE DETECCIÓN DE LANZAMIENTOS")
-    print("=" * 70)
-
-    print()
-    print(
-        "Artistas configurados:",
-        len(ARTISTS)
-    )
-
-    print(
-        "Modo: SOLO LECTURA"
-    )
-
-    print(
-        "Telegram: NO SE PUBLICARÁ NADA"
-    )
-
+    print("==========================================")
+    print("PRUEBA DE PUBLICACIÓN - CUBATON MUSIC")
+    print("==========================================")
     print()
 
-    total_artists = 0
-    successful_artists = 0
-    failed_artists = 0
-    total_releases = 0
+    try:
 
-    all_results = []
+        lanzamiento = obtener_ultimo_lanzamiento()
 
-    for artist_name, channel_id in ARTISTS.items():
-
-        total_artists += 1
-
-        result = process_artist(
-            artist_name,
-            channel_id
-        )
-
-        all_results.append(result)
-
-        if result["ok"]:
-            successful_artists += 1
-            total_releases += len(
-                result["releases"]
+        print()
+        print("Lanzamiento seleccionado:")
+        print(
+            lanzamiento.get(
+                "title",
+                "Sin título"
             )
-        else:
-            failed_artists += 1
-
-        # Pequeña pausa para no hacer
-        # demasiadas consultas seguidas.
-        time.sleep(1)
-
-    print()
-    print()
-    print("=" * 70)
-    print("RESUMEN FINAL")
-    print("=" * 70)
-
-    print(
-        "Artistas configurados:",
-        total_artists
-    )
-
-    print(
-        "Consultas exitosas:",
-        successful_artists
-    )
-
-    print(
-        "Consultas con error:",
-        failed_artists
-    )
-
-    print(
-        "Lanzamientos encontrados:",
-        total_releases
-    )
-
-    print()
-
-    if successful_artists == 35:
-        print(
-            "OK: los 35 artistas fueron consultados correctamente."
-        )
-    else:
-        print(
-            "ATENCIÓN: algunos artistas tuvieron problemas."
         )
 
-    print()
-    print("=" * 70)
-    print("FIN DE LA PRUEBA")
-    print("=" * 70)
+        print()
+
+        enviar_publicacion(lanzamiento)
+
+    except Exception as error:
+
+        print()
+        print("==========================================")
+        print("ERROR")
+        print("==========================================")
+        print(str(error))
+        print()
+
+        sys.exit(1)
 
 
 if __name__ == "__main__":
