@@ -21,8 +21,8 @@ TELEGRAM_CHANNEL = "@Cubaton_Music"
 
 def obtener_ultimo_lanzamiento():
     """
-    Obtiene la información del artista desde YouTube Music
-    y selecciona el lanzamiento más reciente disponible.
+    Obtiene los lanzamientos de Bebeshito desde YouTube Music
+    y selecciona el single más reciente.
     """
 
     print(f"Consultando YouTube Music: {ARTIST_NAME}")
@@ -34,88 +34,52 @@ def obtener_ultimo_lanzamiento():
     albums = artista.get("albums", {})
     singles = artista.get("singles", {})
 
-    lanzamientos = []
-
     # --------------------------------------------------------
-    # Álbumes
-    # --------------------------------------------------------
-
-    if isinstance(albums, dict):
-        for item in albums.get("results", []):
-            if isinstance(item, dict):
-                item["_tipo_lanzamiento"] = "Álbum"
-                lanzamientos.append(item)
-
-    # --------------------------------------------------------
-    # Singles
+    # Priorizamos Singles
     # --------------------------------------------------------
 
     if isinstance(singles, dict):
-        for item in singles.get("results", []):
-            if isinstance(item, dict):
-                item["_tipo_lanzamiento"] = "Single"
-                lanzamientos.append(item)
+        resultados = singles.get("results", [])
 
-    if not lanzamientos:
-        raise RuntimeError(
-            "No se encontraron lanzamientos para el artista."
-        )
-
-    # --------------------------------------------------------
-    # Mostrar los lanzamientos encontrados
-    # --------------------------------------------------------
-
-    print(f"Lanzamientos encontrados: {len(lanzamientos)}")
-
-    for i, item in enumerate(lanzamientos[:10], start=1):
-        titulo = item.get("title", "Sin título")
-        tipo = item.get("_tipo_lanzamiento", "Lanzamiento")
-        print(f"{i}. [{tipo}] {titulo}")
-
-    # --------------------------------------------------------
-    # El primer resultado de YouTube Music corresponde al
-    # lanzamiento más reciente dentro de cada categoría.
-    #
-    # Priorizamos singles porque el objetivo principal del
-    # canal son canciones nuevas.
-    # --------------------------------------------------------
-
-    if singles and isinstance(singles, dict):
-        resultados_singles = singles.get("results", [])
-
-        if resultados_singles:
-            lanzamiento = resultados_singles[0]
+        if resultados:
+            lanzamiento = resultados[0].copy()
             lanzamiento["_tipo_lanzamiento"] = "Single"
+
+            print(f"Lanzamiento seleccionado: {lanzamiento.get('title')}")
             return lanzamiento
 
-    # Si no hay singles, utilizamos el álbum más reciente.
+    # --------------------------------------------------------
+    # Si no hay singles, utilizamos el álbum más reciente
+    # --------------------------------------------------------
 
-    if albums and isinstance(albums, dict):
-        resultados_albums = albums.get("results", [])
+    if isinstance(albums, dict):
+        resultados = albums.get("results", [])
 
-        if resultados_albums:
-            lanzamiento = resultados_albums[0]
+        if resultados:
+            lanzamiento = resultados[0].copy()
             lanzamiento["_tipo_lanzamiento"] = "Álbum"
+
+            print(f"Lanzamiento seleccionado: {lanzamiento.get('title')}")
             return lanzamiento
 
     raise RuntimeError(
-        "No fue posible determinar el lanzamiento más reciente."
+        "No se encontró ningún lanzamiento."
     )
 
 
 def obtener_imagen(lanzamiento):
     """
-    Intenta obtener la mejor portada disponible.
+    Obtiene la portada de mayor resolución disponible.
     """
 
     thumbnails = lanzamiento.get("thumbnails", [])
 
-    if thumbnails and isinstance(thumbnails, list):
+    if isinstance(thumbnails, list) and thumbnails:
 
-        # Normalmente la última imagen es la de mayor resolución.
         for thumbnail in reversed(thumbnails):
 
             if isinstance(thumbnail, dict):
+
                 url = thumbnail.get("url")
 
                 if url:
@@ -124,10 +88,55 @@ def obtener_imagen(lanzamiento):
     return None
 
 
+def obtener_fecha(lanzamiento):
+    """
+    Intenta obtener la fecha de lanzamiento proporcionada
+    por YouTube Music.
+
+    Devuelve la fecha en formato D/M/A.
+    """
+
+    fecha = lanzamiento.get("releaseDate")
+
+    if not fecha:
+        fecha = lanzamiento.get("release_date")
+
+    if not fecha:
+        return None
+
+    # --------------------------------------------------------
+    # YouTube Music puede devolver una fecha ISO:
+    # YYYY-MM-DD
+    # --------------------------------------------------------
+
+    if isinstance(fecha, str):
+
+        partes = fecha.split("-")
+
+        if len(partes) >= 3:
+
+            try:
+                año = int(partes[0])
+                mes = int(partes[1])
+                dia = int(partes[2])
+
+                return f"{dia}/{mes}/{año}"
+
+            except ValueError:
+                pass
+
+        # ----------------------------------------------------
+        # En caso de que ya venga en otro formato
+        # ----------------------------------------------------
+
+        return fecha
+
+    return None
+
+
 def obtener_url_youtube_music(lanzamiento):
     """
-    Construye la URL de YouTube Music utilizando el browseId
-    disponible en el lanzamiento.
+    Obtiene el enlace directo de YouTube Music.
     """
 
     browse_id = lanzamiento.get("browseId")
@@ -145,32 +154,51 @@ def obtener_url_youtube_music(lanzamiento):
 
 def enviar_publicacion(lanzamiento):
     """
-    Envía la publicación al canal de Telegram.
+    Publica el lanzamiento en Telegram utilizando HTML.
     """
 
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError(
-            "No se encontró la variable TELEGRAM_BOT_TOKEN."
+            "No se encontró TELEGRAM_BOT_TOKEN."
         )
 
-    titulo = lanzamiento.get("title", "Sin título")
-    tipo = lanzamiento.get("_tipo_lanzamiento", "Lanzamiento")
+    titulo = lanzamiento.get(
+        "title",
+        "Sin título"
+    )
+
+    tipo = lanzamiento.get(
+        "_tipo_lanzamiento",
+        "Lanzamiento"
+    )
 
     portada = obtener_imagen(lanzamiento)
-    url_youtube = obtener_url_youtube_music(lanzamiento)
+
+    fecha = obtener_fecha(lanzamiento)
+
+    url_youtube = obtener_url_youtube_music(
+        lanzamiento
+    )
 
     # --------------------------------------------------------
-    # TEXTO DE LA PUBLICACIÓN
+    # CONSTRUIR MENSAJE
     # --------------------------------------------------------
 
     texto = (
-        f"🎤 <b>{ARTIST_NAME}</b>\n"
-        f"🎵 <b>{titulo}</b>\n"
+        f"🎤 <b>{ARTIST_NAME}</b>\n\n"
+        f"🎵 <blockquote><b>{titulo}</b></blockquote>\n\n"
         f"📀 Tipo: {tipo}"
     )
 
     # --------------------------------------------------------
-    # BOTÓN
+    # FECHA
+    # --------------------------------------------------------
+
+    if fecha:
+        texto += f"\n🗓 {fecha}"
+
+    # --------------------------------------------------------
+    # BOTÓN DE YOUTUBE MUSIC
     # --------------------------------------------------------
 
     reply_markup = {
@@ -184,38 +212,28 @@ def enviar_publicacion(lanzamiento):
         ]
     }
 
-    telegram_url = (
-        f"https://api.telegram.org/bot"
-        f"{TELEGRAM_BOT_TOKEN}/sendPhoto"
-    )
-
     # --------------------------------------------------------
-    # PUBLICAR CON PORTADA
+    # TELEGRAM API
     # --------------------------------------------------------
 
     if portada:
+
+        telegram_url = (
+            f"https://api.telegram.org/bot"
+            f"{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        )
 
         datos = {
             "chat_id": TELEGRAM_CHANNEL,
             "photo": portada,
             "caption": texto,
             "parse_mode": "HTML",
-            "reply_markup": str(reply_markup).replace("'", '"')
+            "reply_markup": reply_markup
         }
 
-        respuesta = requests.post(
-            telegram_url,
-            data=datos,
-            timeout=30
-        )
-
     else:
-        # ----------------------------------------------------
-        # Si por alguna razón YouTube Music no proporciona
-        # portada, enviamos el mensaje igualmente.
-        # ----------------------------------------------------
 
-        telegram_url_text = (
+        telegram_url = (
             f"https://api.telegram.org/bot"
             f"{TELEGRAM_BOT_TOKEN}/sendMessage"
         )
@@ -224,17 +242,21 @@ def enviar_publicacion(lanzamiento):
             "chat_id": TELEGRAM_CHANNEL,
             "text": texto,
             "parse_mode": "HTML",
-            "reply_markup": str(reply_markup).replace("'", '"')
+            "reply_markup": reply_markup
         }
 
-        respuesta = requests.post(
-            telegram_url_text,
-            data=datos,
-            timeout=30
-        )
+    # --------------------------------------------------------
+    # ENVIAR
+    # --------------------------------------------------------
+
+    respuesta = requests.post(
+        telegram_url,
+        data=datos,
+        timeout=30
+    )
 
     # --------------------------------------------------------
-    # COMPROBAR RESPUESTA
+    # COMPROBAR RESULTADO
     # --------------------------------------------------------
 
     if not respuesta.ok:
@@ -249,11 +271,12 @@ def enviar_publicacion(lanzamiento):
     resultado = respuesta.json()
 
     if not resultado.get("ok"):
+
         print("Telegram rechazó la publicación:")
         print(resultado)
 
         raise RuntimeError(
-            "Telegram no pudo enviar la publicación."
+            "Telegram no pudo publicar el mensaje."
         )
 
     print()
@@ -263,6 +286,7 @@ def enviar_publicacion(lanzamiento):
     print(f"Artista: {ARTIST_NAME}")
     print(f"Título: {titulo}")
     print(f"Tipo: {tipo}")
+    print(f"Fecha: {fecha or 'No disponible'}")
     print(f"YouTube Music: {url_youtube}")
     print("==========================================")
 
@@ -281,17 +305,6 @@ def main():
     try:
 
         lanzamiento = obtener_ultimo_lanzamiento()
-
-        print()
-        print("Lanzamiento seleccionado:")
-        print(
-            lanzamiento.get(
-                "title",
-                "Sin título"
-            )
-        )
-
-        print()
 
         enviar_publicacion(lanzamiento)
 
