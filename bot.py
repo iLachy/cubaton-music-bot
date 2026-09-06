@@ -1,8 +1,11 @@
 from ytmusicapi import YTMusic
 import requests
 import re
+import html
+
 
 ytmusic = YTMusic()
+
 
 ARTISTS = {
     "Bebeshito": "https://music.youtube.com/@bebeshito",
@@ -42,108 +45,244 @@ ARTISTS = {
     "Gente de Zona": "https://music.youtube.com/@gentedezonaoficial",
     "La Diosa": "https://music.youtube.com/@ladiosa",
     "Seidy La Niña": "https://music.youtube.com/@seidylanina",
-    "Divan": "https://music.youtube.com/@divanoficial",
 }
 
 
-def obtener_channel_id_desde_url(url):
+def normalizar(texto):
     """
-    Obtiene el channelId directamente desde un enlace de YouTube/YouTube Music.
-
-    Si el enlace ya contiene /channel/UC..., devuelve ese ID.
-
-    Si contiene un @handle, consulta la página pública de YouTube
-    y busca el identificador del canal.
+    Normaliza texto para poder comparar nombres.
     """
 
-    # ---------------------------------------------------------
-    # CASO 1: URL que ya contiene channel/UC...
-    # ---------------------------------------------------------
+    if not texto:
+        return ""
 
-    if "/channel/" in url:
+    texto = html.unescape(texto)
+    texto = texto.lower().strip()
 
-        channel_id = url.split("/channel/")[1].split("?")[0].strip()
+    reemplazos = {
+        "&": "and",
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ü": "u",
+    }
 
-        return channel_id
+    for viejo, nuevo in reemplazos.items():
+        texto = texto.replace(viejo, nuevo)
+
+    texto = re.sub(r"[^a-z0-9]+", " ", texto)
+
+    return " ".join(texto.split())
 
 
-    # ---------------------------------------------------------
-    # CASO 2: URL con @handle
-    # ---------------------------------------------------------
+def nombres_compatibles(esperado, obtenido):
+    """
+    Comprueba si el nombre de YouTube Music es razonablemente
+    compatible con el nombre que nosotros esperamos.
 
-    match = re.search(r"/@([^/?]+)", url)
+    No intenta ser demasiado permisivo.
+    """
 
-    if not match:
-        return None
+    a = normalizar(esperado)
+    b = normalizar(obtenido)
+
+    if not a or not b:
+        return False
+
+    if a == b:
+        return True
+
+    palabras_a = set(a.split())
+    palabras_b = set(b.split())
+
+    # Coincidencia exacta de todas las palabras importantes.
+    if palabras_a and palabras_a.issubset(palabras_b):
+        return True
+
+    if palabras_b and palabras_b.issubset(palabras_a):
+        return True
+
+    return False
 
 
-    handle = match.group(1)
+def obtener_channel_id_desde_channel_url(url):
+    """
+    Si la URL ya contiene /channel/UC..., devuelve directamente
+    ese Channel ID.
+    """
 
-    print(f"Handle detectado: @{handle}")
+    match = re.search(
+        r"/channel/(UC[a-zA-Z0-9_-]{22})",
+        url
+    )
 
-    # Intentamos primero YouTube Music.
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def obtener_handle(url):
+    """
+    Extrae el @handle de una URL.
+    """
+
+    match = re.search(
+        r"/@([^/?]+)",
+        url
+    )
+
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def obtener_html_canal(handle):
+    """
+    Descarga la página pública del canal y busca referencias
+    al Channel ID.
+
+    Probamos YouTube Music y YouTube normal.
+    """
+
     urls = [
         f"https://music.youtube.com/@{handle}",
         f"https://www.youtube.com/@{handle}",
     ]
 
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/131.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
-    for pagina in urls:
+    for url in urls:
+
+        print(f"Consultando: {url}")
 
         try:
 
-            print(f"Consultando: {pagina}")
-
             respuesta = requests.get(
-                pagina,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 "
-                        "(Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) "
-                        "Chrome/131.0 Safari/537.36"
-                    )
-                },
-                timeout=20
+                url,
+                headers=headers,
+                timeout=20,
+                allow_redirects=True,
             )
 
             print(f"HTTP: {respuesta.status_code}")
+            print(f"URL final: {respuesta.url}")
 
             if respuesta.status_code != 200:
                 continue
 
+            return respuesta.text
 
-            texto = respuesta.text
+        except Exception as error:
 
-
-            # Buscamos el channelId dentro del HTML.
-            patrones = [
-
-                r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
-
-                r'"externalId":"(UC[a-zA-Z0-9_-]{22})"',
-
-                r'channelId\\":\\"(UC[a-zA-Z0-9_-]{22})',
-
-            ]
-
-
-            for patron in patrones:
-
-                encontrado = re.search(patron, texto)
-
-                if encontrado:
-
-                    return encontrado.group(1)
-
-
-        except Exception as e:
-
-            print(f"Error consultando página: {e}")
-
+            print(f"Error: {error}")
 
     return None
+
+
+def extraer_channel_ids(texto):
+    """
+    Busca todos los Channel IDs que aparezcan en el HTML.
+    """
+
+    if not texto:
+        return []
+
+    patrones = [
+        r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
+        r'"externalId":"(UC[a-zA-Z0-9_-]{22})"',
+        r'channelId\\":\\"(UC[a-zA-Z0-9_-]{22})',
+        r'channelId%22%3A%22(UC[a-zA-Z0-9_-]{22})',
+    ]
+
+    encontrados = []
+
+    for patron in patrones:
+
+        matches = re.findall(patron, texto)
+
+        for channel_id in matches:
+
+            if channel_id not in encontrados:
+                encontrados.append(channel_id)
+
+    return encontrados
+
+
+def comprobar_channel_id(
+    nombre_esperado,
+    channel_id,
+    fuente,
+):
+    """
+    Comprueba un Channel ID mediante ytmusicapi.
+    """
+
+    print()
+    print(f"Comprobando ID: {channel_id}")
+    print(f"Fuente: {fuente}")
+
+    try:
+
+        datos = ytmusic.get_artist(channel_id)
+
+        nombre_youtube = datos.get("name")
+        seguidores = datos.get("subscribers")
+
+        print(f"Nombre devuelto: {nombre_youtube}")
+        print(f"Seguidores: {seguidores}")
+
+        compatible = nombres_compatibles(
+            nombre_esperado,
+            nombre_youtube
+        )
+
+        if compatible:
+
+            print("RESULTADO: OK")
+
+            return {
+                "channel_id": channel_id,
+                "youtube_name": nombre_youtube,
+                "subscribers": seguidores,
+                "status": "OK",
+            }
+
+        print("RESULTADO: REVISAR")
+        print(
+            f"El nombre esperado es '{nombre_esperado}', "
+            f"pero YouTube Music devuelve '{nombre_youtube}'."
+        )
+
+        return {
+            "channel_id": channel_id,
+            "youtube_name": nombre_youtube,
+            "subscribers": seguidores,
+            "status": "REVISAR",
+        }
+
+    except Exception as error:
+
+        print(f"ERROR YTMUSICAPI: {error}")
+
+        return {
+            "channel_id": channel_id,
+            "youtube_name": None,
+            "subscribers": None,
+            "status": "ERROR",
+        }
 
 
 def verificar_artista(nombre, url):
@@ -154,106 +293,197 @@ def verificar_artista(nombre, url):
     print(f"URL:     {url}")
     print("=" * 90)
 
-    channel_id = obtener_channel_id_desde_url(url)
+    # ---------------------------------------------------------
+    # CASO 1
+    # La URL ya tiene Channel ID.
+    # ---------------------------------------------------------
 
+    channel_id = obtener_channel_id_desde_channel_url(url)
 
-    if not channel_id:
+    if channel_id:
 
         print()
-        print("❌ NO SE PUDO OBTENER EL CHANNEL ID")
+        print("La URL contiene directamente un Channel ID.")
+
+        resultado = comprobar_channel_id(
+            nombre,
+            channel_id,
+            "URL /channel/"
+        )
+
+        return resultado
+
+
+    # ---------------------------------------------------------
+    # CASO 2
+    # La URL utiliza @handle.
+    # ---------------------------------------------------------
+
+    handle = obtener_handle(url)
+
+    if not handle:
+
+        print("No se pudo extraer el handle.")
 
         return {
-            "artist": nombre,
-            "url": url,
             "channel_id": None,
             "youtube_name": None,
+            "subscribers": None,
             "status": "NO_ENCONTRADO",
         }
 
 
     print()
-    print(f"Channel ID encontrado: {channel_id}")
+    print(f"Handle: @{handle}")
 
+    texto = obtener_html_canal(handle)
 
-    try:
+    if not texto:
 
-        datos = ytmusic.get_artist(channel_id)
-
-        nombre_youtube = datos.get("name")
-
-        seguidores = datos.get("subscribers")
-
-
-        print()
-        print("DATOS DE YOUTUBE MUSIC")
-        print("-" * 90)
-
-        print(f"Nombre:      {nombre_youtube}")
-        print(f"Channel ID:  {channel_id}")
-        print(f"Seguidores:  {seguidores}")
-
-        print()
-        print("✅ CANAL ENCONTRADO")
-
+        print("No se pudo descargar la página.")
 
         return {
-            "artist": nombre,
-            "url": url,
-            "channel_id": channel_id,
-            "youtube_name": nombre_youtube,
-            "status": "OK",
-        }
-
-
-    except Exception as e:
-
-        print()
-        print("⚠️ CHANNEL ID ENCONTRADO, PERO YTMUSICAPI NO PUDO ABRIRLO")
-        print(f"Error: {e}")
-
-        return {
-            "artist": nombre,
-            "url": url,
-            "channel_id": channel_id,
+            "channel_id": None,
             "youtube_name": None,
-            "status": "ID_ENCONTRADO",
+            "subscribers": None,
+            "status": "NO_ENCONTRADO",
         }
+
+
+    channel_ids = extraer_channel_ids(texto)
+
+    print()
+    print(f"Channel IDs encontrados: {len(channel_ids)}")
+
+    if not channel_ids:
+
+        print("No se encontró ningún Channel ID.")
+
+        return {
+            "channel_id": None,
+            "youtube_name": None,
+            "subscribers": None,
+            "status": "NO_ENCONTRADO",
+        }
+
+
+    # ---------------------------------------------------------
+    # Comprobamos cada ID.
+    # NUNCA elegimos simplemente el primero.
+    # ---------------------------------------------------------
+
+    resultados = []
+
+    for candidato in channel_ids:
+
+        resultado = comprobar_channel_id(
+            nombre,
+            candidato,
+            f"@{handle}"
+        )
+
+        resultados.append(resultado)
+
+
+    # ---------------------------------------------------------
+    # Buscar coincidencia exacta.
+    # ---------------------------------------------------------
+
+    validos = [
+        resultado
+        for resultado in resultados
+        if resultado["status"] == "OK"
+    ]
+
+
+    if len(validos) == 1:
+
+        print()
+        print("CANAL VALIDADO CORRECTAMENTE.")
+
+        return validos[0]
+
+
+    if len(validos) > 1:
+
+        print()
+        print("HAY VARIOS CANDIDATOS VÁLIDOS.")
+        print("ESTADO: REVISAR")
+
+        return {
+            "channel_id": None,
+            "youtube_name": None,
+            "subscribers": None,
+            "status": "REVISAR",
+        }
+
+
+    print()
+    print("No se encontró coincidencia segura.")
+
+    # Mostramos el primer candidato únicamente como
+    # información, pero NO lo consideramos válido.
+
+    if resultados:
+
+        primero = resultados[0]
+
+        return {
+            "channel_id": primero.get("channel_id"),
+            "youtube_name": primero.get("youtube_name"),
+            "subscribers": primero.get("subscribers"),
+            "status": "REVISAR",
+        }
+
+    return {
+        "channel_id": None,
+        "youtube_name": None,
+        "subscribers": None,
+        "status": "NO_ENCONTRADO",
+    }
 
 
 print()
 print("=" * 90)
-print("PASO 16")
-print("RESOLUCIÓN DIRECTA DE LOS 38 CANALES")
+print("PASO 17")
+print("VERIFICACIÓN ESTRICTA DE LOS 37 ARTISTAS")
 print("=" * 90)
 
 print()
 print(f"Total de artistas: {len(ARTISTS)}")
 
-
-resultados = []
+resultados_finales = []
 
 
 for nombre, url in ARTISTS.items():
 
     try:
 
-        resultado = verificar_artista(nombre, url)
+        resultado = verificar_artista(
+            nombre,
+            url
+        )
 
-        resultados.append(resultado)
+        resultados_finales.append({
+            "artist": nombre,
+            "url": url,
+            **resultado,
+        })
 
-    except Exception as e:
+    except Exception as error:
 
         print()
         print("=" * 90)
         print(f"ERROR GENERAL: {nombre}")
-        print(f"Detalle: {e}")
+        print(f"Detalle: {error}")
         print("=" * 90)
 
-        resultados.append({
+        resultados_finales.append({
             "artist": nombre,
             "url": url,
             "channel_id": None,
             "youtube_name": None,
+            "subscribers": None,
             "status": "ERROR",
         })
 
@@ -264,7 +494,7 @@ print("=" * 90)
 print("RESUMEN FINAL")
 print("=" * 90)
 
-for resultado in resultados:
+for resultado in resultados_finales:
 
     print(
         f"{resultado['artist']} "
@@ -279,5 +509,39 @@ for resultado in resultados:
 
 print()
 print("=" * 90)
-print("VERIFICACIÓN TERMINADA")
+print("TOTALES")
+print("=" * 90)
+
+ok = sum(
+    1
+    for r in resultados_finales
+    if r["status"] == "OK"
+)
+
+revisar = sum(
+    1
+    for r in resultados_finales
+    if r["status"] == "REVISAR"
+)
+
+no_encontrado = sum(
+    1
+    for r in resultados_finales
+    if r["status"] == "NO_ENCONTRADO"
+)
+
+errores = sum(
+    1
+    for r in resultados_finales
+    if r["status"] == "ERROR"
+)
+
+print(f"OK:             {ok}")
+print(f"REVISAR:        {revisar}")
+print(f"NO ENCONTRADO:  {no_encontrado}")
+print(f"ERROR:          {errores}")
+
+print()
+print("=" * 90)
+print("PASO 17 TERMINADO")
 print("=" * 90)
