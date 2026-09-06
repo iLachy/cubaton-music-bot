@@ -1,10 +1,13 @@
-name: Validar artistas YouTube Music
+name: Prueba de publicación Telegram
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  validar:
+  publicar-prueba:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,8 +22,10 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install ytmusicapi
+          pip install ytmusicapi requests
 
-      - name: Ejecutar validación
+      - name: Ejecutar publicación de prueba
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           python bot.py
