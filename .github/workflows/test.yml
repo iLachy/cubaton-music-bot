@@ -1,10 +1,10 @@
-name: Prueba Cubaton Music
+name: Paso 14 - Identificar artistas
 
 on:
   workflow_dispatch:
 
 jobs:
-  test:
+  identificar-artistas:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,9 +17,8 @@ jobs:
           python-version: "3.x"
 
       - name: Instalar dependencias
-        run: pip install requests ytmusicapi
+        run: |
+          pip install ytmusicapi
 
-      - name: Ejecutar prueba
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      - name: Buscar artistas en YouTube Music
         run: python bot.py
