@@ -2,89 +2,117 @@ from ytmusicapi import YTMusic
 
 ytmusic = YTMusic()
 
-ARTISTS = [
-    "Bebeshito",
-    "Charly & Johayron",
-    "Dany Ome",
-    "Kevincito El 13",
-    "Wampi",
-    "El Taiger",
-    "Ja Rulay",
-    "L Kimii",
-    "El Dray",
-    "Ya Ice Dilan",
-    "Rey Tony",
-    "Baby Maykol",
-    "Payaso x Ley",
-    "Kaly y Kowa",
-    "Wildey",
-    "Wow Popy",
-    "Talent Fuego",
-    "Mawell",
-    "Harryson",
-    "El Chulo",
-    "Fixty Ordara",
-    "El Kamel",
-    "Velito El Bufón",
-    "Helabusador",
-    "Un Titico",
-    "Musteerifa",
-    "Yordy DK",
-    "Chocolate MC",
-    "El Chacal",
-    "El Micha",
-    "Yomil",
-    "Jacob Forever",
-    "Gente de Zona",
-    "La Diosa",
-    "Seidy La Niña",
-    "Srta. Dayana",
-    "Divan",
-    "Michel Boutic",
-    "DJ Conds",
-    "DJ Unic",
-    "DJ Honda",
-    "Roberto Ferrante",
-    "Pututi",
-]
+
+CANDIDATES = {
+    "Wampi": [
+        "UCbfzw8u1lCwDMv443StJEOw",
+        "UC6mGHuUjSC78InOHqpWTIlg",
+    ],
+
+    "El Dray": [
+        "UC4kpn8y8QXYXmyDn8HJKD8Q",
+        "UCEhuYVGDegmiDPnclL3VALg",
+    ],
+
+    "Ya Ice Dilan": [
+        "UC9aJbR9Q8nscvZaMw_cH4Ww",
+        "UC2LV8lBrk6XhGXWEW6FQ5Yw",
+    ],
+
+    "Rey Tony": [
+        "UCDhExL0uVtumv_DEjPPq5qg",
+        "UC44Wl903rZyECDgd31QY0jw",
+        "UCTCNLKtFIKj3ccASX-CxAQQ",
+    ],
+
+    "El Chulo": [
+        "UCiT8VNdnpeYnCTPJZoqym9g",
+        "UC1SO6N8zhEFpkeZ8RwB4-aQ",
+        "UCFpUBfhecvSQ1b-Wfjep6SQ",
+        "UCkR0TzTgWPXxzyYouqjcAfA",
+    ],
+
+    "Chocolate MC": [
+        "UCYVuThmAmbXxk1o9Un5Cc_w",
+        "UCKv7qrXw4z27Kil_UU8RPkA",
+    ],
+
+    "Yomil": [
+        "UCPfXwOpwRIbVsqqTsgt4i5g",
+        "UC3V7uL_r1yOl1Eagu08iQoA",
+    ],
+
+    "El Micha": [
+        "UCHhrMSqe_C1E_JBEz3mRlew",
+        "UCshkJg40zQSYMQfEU2sPRHw",
+    ],
+
+    "Divan": [
+        "UClkrdbqStBnXkfm6JvcvLsA",
+        "UCVOhy-LAg5JU2gXlSMnfuhg",
+        "UCik9RxN7JDwObrXSalYHJIA",
+    ],
+
+    "Musteerifa": [
+        "UCUmbJ10w6Sljv-zIv0iQxNw",
+        "UCiT8PzlQqtPC7lWFh3--4jw",
+        "UCL2y69awsxlPljbUNQTbHTg",
+    ],
+
+    "DJ Honda": [
+        "UC7thYxXkCYkqZm_hQzny9aw",
+        "UCVQLsyjNCa-GwEkshLN1Dfg",
+    ],
+}
 
 
-def buscar_artista(nombre):
-    resultados = ytmusic.search(
-        nombre,
-        filter="artists",
-        limit=5
-    )
+def mostrar_artista(nombre, channel_id):
 
     print()
-    print("=" * 70)
-    print(f"BUSQUEDA: {nombre}")
-    print("=" * 70)
+    print("=" * 80)
+    print(f"ARTISTA: {nombre}")
+    print(f"ID: {channel_id}")
+    print("=" * 80)
 
-    if not resultados:
-        print("NO SE ENCONTRARON RESULTADOS")
-        return
-
-    for i, artista in enumerate(resultados, start=1):
-        print(f"{i}. Nombre: {artista.get('artist')}")
-        print(f"   ID: {artista.get('browseId')}")
-        print()
-
-
-print("INICIANDO BUSQUEDA DE ARTISTAS EN YOUTUBE MUSIC...")
-print(f"Total de artistas: {len(ARTISTS)}")
-
-for nombre in ARTISTS:
     try:
-        buscar_artista(nombre)
-    except Exception as e:
+        datos = ytmusic.get_artist(channel_id)
+
+        print(f"Nombre YouTube Music: {datos.get('name')}")
+        print(f"Descripción: {datos.get('description')}")
+        print(f"Seguidores: {datos.get('subscribers')}")
+
         print()
-        print("=" * 70)
-        print(f"ERROR BUSCANDO: {nombre}")
-        print(f"Detalle: {e}")
-        print("=" * 70)
+        print("LANZAMIENTOS:")
+
+        albums = datos.get("albums", {})
+
+        resultados = albums.get("results", [])
+
+        if not resultados:
+            print("No aparecen lanzamientos en esta consulta.")
+        else:
+            for i, album in enumerate(resultados[:10], start=1):
+                print(
+                    f"{i}. {album.get('title')} "
+                    f"| {album.get('type')} "
+                    f"| {album.get('year')}"
+                )
+
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+
+print("=" * 80)
+print("VERIFICACIÓN DE CANALES DE ARTISTAS")
+print("=" * 80)
+
+for nombre, ids in CANDIDATES.items():
+
+    for channel_id in ids:
+        mostrar_artista(nombre, channel_id)
+
 
 print()
-print("=" * 70)
-print("BUSQUEDA TERMINADA")
-print("=" * 70)
+print("=" * 80)
+print("VERIFICACIÓN TERMINADA")
+print("=" * 80)
