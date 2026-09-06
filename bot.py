@@ -2,117 +2,248 @@ from ytmusicapi import YTMusic
 
 ytmusic = YTMusic()
 
-
-CANDIDATES = {
-    "Wampi": [
-        "UCbfzw8u1lCwDMv443StJEOw",
-        "UC6mGHuUjSC78InOHqpWTIlg",
-    ],
-
-    "El Dray": [
-        "UC4kpn8y8QXYXmyDn8HJKD8Q",
-        "UCEhuYVGDegmiDPnclL3VALg",
-    ],
-
-    "Ya Ice Dilan": [
-        "UC9aJbR9Q8nscvZaMw_cH4Ww",
-        "UC2LV8lBrk6XhGXWEW6FQ5Yw",
-    ],
-
-    "Rey Tony": [
-        "UCDhExL0uVtumv_DEjPPq5qg",
-        "UC44Wl903rZyECDgd31QY0jw",
-        "UCTCNLKtFIKj3ccASX-CxAQQ",
-    ],
-
-    "El Chulo": [
-        "UCiT8VNdnpeYnCTPJZoqym9g",
-        "UC1SO6N8zhEFpkeZ8RwB4-aQ",
-        "UCFpUBfhecvSQ1b-Wfjep6SQ",
-        "UCkR0TzTgWPXxzyYouqjcAfA",
-    ],
-
-    "Chocolate MC": [
-        "UCYVuThmAmbXxk1o9Un5Cc_w",
-        "UCKv7qrXw4z27Kil_UU8RPkA",
-    ],
-
-    "Yomil": [
-        "UCPfXwOpwRIbVsqqTsgt4i5g",
-        "UC3V7uL_r1yOl1Eagu08iQoA",
-    ],
-
-    "El Micha": [
-        "UCHhrMSqe_C1E_JBEz3mRlew",
-        "UCshkJg40zQSYMQfEU2sPRHw",
-    ],
-
-    "Divan": [
-        "UClkrdbqStBnXkfm6JvcvLsA",
-        "UCVOhy-LAg5JU2gXlSMnfuhg",
-        "UCik9RxN7JDwObrXSalYHJIA",
-    ],
-
-    "Musteerifa": [
-        "UCUmbJ10w6Sljv-zIv0iQxNw",
-        "UCiT8PzlQqtPC7lWFh3--4jw",
-        "UCL2y69awsxlPljbUNQTbHTg",
-    ],
-
-    "DJ Honda": [
-        "UC7thYxXkCYkqZm_hQzny9aw",
-        "UCVQLsyjNCa-GwEkshLN1Dfg",
-    ],
+ARTISTS = {
+    "Bebeshito": "https://music.youtube.com/@bebeshito",
+    "Charly & Johayron": "https://music.youtube.com/@charlyjohayron",
+    "Dany Ome": "https://music.youtube.com/@danyome",
+    "Kevincito El 13": "https://music.youtube.com/@kevincitoel13",
+    "Wampi": "https://music.youtube.com/@wampi",
+    "El Taiger": "https://music.youtube.com/@eltaiger",
+    "Ja Rulay": "https://music.youtube.com/@jarulay",
+    "L Kimii": "https://music.youtube.com/@lkimii9923",
+    "El Dray": "https://music.youtube.com/@eseldray",
+    "Mauro y El Pitu": "https://music.youtube.com/@mauropitu_",
+    "Yirow Y El Tingo": "https://music.youtube.com/@elyirowyeltingo",
+    "Nany La Kbra": "https://music.youtube.com/channel/UCG4lSNdNx_LuLnN2EW6uWwQ",
+    "Ya Ice Dilan": "https://music.youtube.com/channel/UC9aJbR9Q8nscvZaMw_cH4Ww",
+    "Rey Tony": "https://music.youtube.com/channel/UCDhExL0uVtumv_DEjPPq5qg",
+    "Baby Maikol": "https://music.youtube.com/@babyymaikol",
+    "Payaso X Ley": "https://music.youtube.com/@payasoxley",
+    "Kaly Y Kowa": "https://music.youtube.com/@kalyykowa",
+    "Wildey": "https://music.youtube.com/@wildeylucho",
+    "Wow Popy": "https://music.youtube.com/@wowpopyoficiall",
+    "Talent Fuego": "https://music.youtube.com/@talentfuego",
+    "Mawell": "https://music.youtube.com/@mawelloficial",
+    "Harryson": "https://music.youtube.com/@harryson1pesao",
+    "El Chulo": "https://music.youtube.com/@elchulopa",
+    "Fixty Ordara": "https://music.youtube.com/channel/UCDHDCbVOQywsLCsCZ8PH-AA",
+    "El Kamel": "https://music.youtube.com/@elkameloficial",
+    "Velito el Bufón": "https://music.youtube.com/@velitoelbufon",
+    "Helabusador": "https://music.youtube.com/channel/UC89ct8d1ZKEXS03nSpntgPg",
+    "Un Titico": "https://music.youtube.com/@untitico",
+    "Musteerifa": "https://music.youtube.com/channel/UCiT8PzlQqtPC7lWFh3--4jw",
+    "Chocolate MC": "https://music.youtube.com/@chocolatemcoficialyoutube",
+    "El Chacal": "https://music.youtube.com/@chacalrlm",
+    "El Micha": "https://music.youtube.com/@elmichaoficial1",
+    "Yomil": "https://music.youtube.com/@yomil_champions",
+    "Jacob Forever": "https://music.youtube.com/@jacobforeveroficial",
+    "Gente de Zona": "https://music.youtube.com/@gentedezonaoficial",
+    "La Diosa": "https://music.youtube.com/@ladiosa",
+    "Seidy La Niña": "https://music.youtube.com/@seidylanina",
+    "Divan": "https://music.youtube.com/@divanoficial",
 }
 
 
-def mostrar_artista(nombre, channel_id):
+def extraer_referencia(url):
+    """
+    Extrae la referencia útil del enlace de YouTube Music.
 
+    Ejemplos:
+    https://music.youtube.com/@bebeshito
+    -> @bebeshito
+
+    https://music.youtube.com/channel/UCxxxx
+    -> UCxxxx
+    """
+
+    if "/channel/" in url:
+        return url.split("/channel/")[1].split("?")[0].strip()
+
+    if "/@" in url:
+        return "@" + url.split("/@")[1].split("?")[0].strip()
+
+    return url
+
+
+def buscar_por_handle(handle):
+    """
+    Busca un canal/artista utilizando el handle proporcionado.
+    """
+
+    resultados = ytmusic.search(
+        handle,
+        filter="artists",
+        limit=5
+    )
+
+    return resultados
+
+
+def verificar_artista(nombre, url):
     print()
-    print("=" * 80)
+    print("=" * 90)
     print(f"ARTISTA: {nombre}")
-    print(f"ID: {channel_id}")
-    print("=" * 80)
+    print(f"ENLACE:  {url}")
+    print("=" * 90)
 
+    referencia = extraer_referencia(url)
+
+    print(f"Referencia: {referencia}")
+    print()
+
+    # Si ya tenemos directamente el channelId,
+    # no necesitamos buscarlo.
+    if referencia.startswith("UC"):
+        channel_id = referencia
+
+        try:
+            datos = ytmusic.get_artist(channel_id)
+
+            print("RESULTADO DIRECTO")
+            print("-" * 90)
+            print(f"Nombre YouTube Music : {datos.get('name')}")
+            print(f"Channel ID           : {channel_id}")
+            print(f"Seguidores           : {datos.get('subscribers')}")
+
+            print()
+            print("ESTADO: CANAL ENCONTRADO")
+
+            return {
+                "artist": nombre,
+                "youtube_name": datos.get("name"),
+                "channel_id": channel_id,
+                "url": url,
+                "status": "OK",
+            }
+
+        except Exception as e:
+            print("ESTADO: ERROR")
+            print(f"Detalle: {e}")
+
+            return {
+                "artist": nombre,
+                "youtube_name": None,
+                "channel_id": channel_id,
+                "url": url,
+                "status": "ERROR",
+            }
+
+    # Para los enlaces @handle hacemos una búsqueda.
     try:
-        datos = ytmusic.get_artist(channel_id)
-
-        print(f"Nombre YouTube Music: {datos.get('name')}")
-        print(f"Descripción: {datos.get('description')}")
-        print(f"Seguidores: {datos.get('subscribers')}")
-
-        print()
-        print("LANZAMIENTOS:")
-
-        albums = datos.get("albums", {})
-
-        resultados = albums.get("results", [])
+        resultados = buscar_por_handle(referencia)
 
         if not resultados:
-            print("No aparecen lanzamientos en esta consulta.")
-        else:
-            for i, album in enumerate(resultados[:10], start=1):
-                print(
-                    f"{i}. {album.get('title')} "
-                    f"| {album.get('type')} "
-                    f"| {album.get('year')}"
-                )
+            print("NO SE ENCONTRARON RESULTADOS")
+
+            return {
+                "artist": nombre,
+                "youtube_name": None,
+                "channel_id": None,
+                "url": url,
+                "status": "NO_ENCONTRADO",
+            }
+
+        print("RESULTADOS ENCONTRADOS:")
+        print("-" * 90)
+
+        for i, resultado in enumerate(resultados, start=1):
+            print(
+                f"{i}. "
+                f"{resultado.get('artist')} "
+                f"| ID: {resultado.get('browseId')}"
+            )
+
+        # Tomamos el primer resultado para la verificación inicial.
+        primero = resultados[0]
+
+        channel_id = primero.get("browseId")
+        youtube_name = primero.get("artist")
+
+        print()
+        print(f"SELECCIONADO: {youtube_name}")
+        print(f"CHANNEL ID:   {channel_id}")
+
+        if channel_id:
+            try:
+                datos = ytmusic.get_artist(channel_id)
+
+                print()
+                print("DATOS DEL CANAL")
+                print("-" * 90)
+                print(f"Nombre YouTube Music : {datos.get('name')}")
+                print(f"Channel ID           : {channel_id}")
+                print(f"Seguidores           : {datos.get('subscribers')}")
+
+                return {
+                    "artist": nombre,
+                    "youtube_name": datos.get("name"),
+                    "channel_id": channel_id,
+                    "url": url,
+                    "status": "OK",
+                }
+
+            except Exception as e:
+                print()
+                print(f"No se pudo abrir el perfil: {e}")
+
+        return {
+            "artist": nombre,
+            "youtube_name": youtube_name,
+            "channel_id": channel_id,
+            "url": url,
+            "status": "REVISAR",
+        }
 
     except Exception as e:
         print(f"ERROR: {e}")
 
-
-print("=" * 80)
-print("VERIFICACIÓN DE CANALES DE ARTISTAS")
-print("=" * 80)
-
-for nombre, ids in CANDIDATES.items():
-
-    for channel_id in ids:
-        mostrar_artista(nombre, channel_id)
+        return {
+            "artist": nombre,
+            "youtube_name": None,
+            "channel_id": None,
+            "url": url,
+            "status": "ERROR",
+        }
 
 
 print()
-print("=" * 80)
+print("=" * 90)
+print("VERIFICACIÓN DE LOS 38 ARTISTAS")
+print("YOUTUBE MUSIC")
+print("=" * 90)
+
+print()
+print(f"Total de artistas: {len(ARTISTS)}")
+print()
+
+resultados_finales = []
+
+for nombre, url in ARTISTS.items():
+
+    resultado = verificar_artista(nombre, url)
+
+    resultados_finales.append(resultado)
+
+
+print()
+print()
+print("=" * 90)
+print("RESUMEN FINAL")
+print("=" * 90)
+
+for resultado in resultados_finales:
+
+    print(
+        f"{resultado['artist']} "
+        f"-> "
+        f"{resultado.get('youtube_name')} "
+        f"-> "
+        f"{resultado.get('channel_id')} "
+        f"-> "
+        f"{resultado.get('status')}"
+    )
+
+print()
+print("=" * 90)
 print("VERIFICACIÓN TERMINADA")
-print("=" * 80)
+print("=" * 90)
