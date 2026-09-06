@@ -13,7 +13,7 @@ TELEGRAM_CHANNEL = "@Cubaton_Music"
 
 
 # ============================================================
-# ARTISTAS
+# ARTISTAS MONITORIZADOS
 # ============================================================
 
 ARTISTAS = [
@@ -165,7 +165,7 @@ ARTISTAS = [
 # ============================================================
 
 if not TELEGRAM_BOT_TOKEN:
-    print("ERROR: No se encontró el secreto TELEGRAM_BOT_TOKEN.")
+    print("ERROR: No se encontró TELEGRAM_BOT_TOKEN.")
     raise SystemExit(1)
 
 
@@ -177,44 +177,153 @@ ytmusic = YTMusic()
 
 
 # ============================================================
-# FUNCIÓN: OBTENER LANZAMIENTO MÁS RECIENTE
+# FUNCIÓN PARA FORMATEAR ARTISTAS
+# ============================================================
+
+def formatear_artistas(artistas):
+
+    nombres = []
+
+    for artista in artistas:
+
+        nombre = artista.get("name", "").strip()
+
+        if not nombre:
+            continue
+
+        # Evitar duplicados
+        if nombre.lower() not in [
+            x.lower() for x in nombres
+        ]:
+            nombres.append(nombre)
+
+
+    # --------------------------------------------------------
+    # Si no hay artistas, usamos el artista monitorizado.
+    # --------------------------------------------------------
+
+    if not nombres:
+        return None
+
+
+    # --------------------------------------------------------
+    # REGLA ESPECIAL:
+    # Rey Tony + Helabusador
+    # --------------------------------------------------------
+
+    nombres_lower = [x.lower() for x in nombres]
+
+    if (
+        "rey tony" in nombres_lower
+        and "helabusador" in nombres_lower
+    ):
+
+        nuevos = []
+
+        for nombre in nombres:
+
+            if nombre.lower() not in [
+                "rey tony",
+                "helabusador"
+            ]:
+                nuevos.append(nombre)
+
+        nuevos.append("Rey Tony & Helabusador")
+
+        nombres = nuevos
+
+
+    # --------------------------------------------------------
+    # REGLA ESPECIAL:
+    # Dany Ome + Kevincito el 13
+    # --------------------------------------------------------
+
+    nombres_lower = [x.lower() for x in nombres]
+
+    if (
+        "dany ome" in nombres_lower
+        and "kevincito el 13" in nombres_lower
+    ):
+
+        nuevos = []
+
+        for nombre in nombres:
+
+            if nombre.lower() not in [
+                "dany ome",
+                "kevincito el 13"
+            ]:
+                nuevos.append(nombre)
+
+        nuevos.append("Dany Ome, Kevincito el 13")
+
+        nombres = nuevos
+
+
+    # --------------------------------------------------------
+    # Separador:
+    #
+    # Siempre usamos coma entre artistas.
+    #
+    # Los dúos especiales ya fueron unidos arriba.
+    # --------------------------------------------------------
+
+    return ", ".join(nombres)
+
+
+# ============================================================
+# FUNCIÓN PARA OBTENER EL LANZAMIENTO MÁS RECIENTE
 # ============================================================
 
 def obtener_ultimo_lanzamiento(artista):
 
-    nombre = artista["name"]
+    nombre_monitorizado = artista["name"]
     channel_id = artista["channel_id"]
+
 
     print()
     print("=" * 60)
-    print(f"CONSULTANDO: {nombre}")
+    print(f"CONSULTANDO: {nombre_monitorizado}")
     print("=" * 60)
 
+
+    # --------------------------------------------------------
+    # CONSULTAR ARTISTA
+    # --------------------------------------------------------
+
     try:
+
         datos_artista = ytmusic.get_artist(channel_id)
 
     except Exception as e:
 
-        print(f"ERROR consultando {nombre}:")
+        print("ERROR CONSULTANDO ARTISTA:")
         print(e)
 
         return None
 
 
+    # --------------------------------------------------------
+    # RECOPILAR SINGLES Y ÁLBUMES
+    # --------------------------------------------------------
+
     lanzamientos = []
 
-    singles = datos_artista.get("singles", {})
-    albums = datos_artista.get("albums", {})
 
+    singles = datos_artista.get("singles", {})
 
     if isinstance(singles, dict):
+
         resultados = singles.get("results", [])
 
         if resultados:
             lanzamientos.extend(resultados)
 
 
+    albums = datos_artista.get("albums", {})
+
     if isinstance(albums, dict):
+
         resultados = albums.get("results", [])
 
         if resultados:
@@ -229,8 +338,7 @@ def obtener_ultimo_lanzamiento(artista):
 
 
     # --------------------------------------------------------
-    # El primer resultado de la lista corresponde normalmente
-    # al lanzamiento más reciente.
+    # PRIMER LANZAMIENTO = MÁS RECIENTE
     # --------------------------------------------------------
 
     lanzamiento = lanzamientos[0]
@@ -241,6 +349,11 @@ def obtener_ultimo_lanzamiento(artista):
     anio = lanzamiento.get("year", "")
 
     browse_id = lanzamiento.get("browseId")
+
+
+    # --------------------------------------------------------
+    # PORTADA
+    # --------------------------------------------------------
 
     thumbnails = lanzamiento.get("thumbnails", [])
 
@@ -257,15 +370,16 @@ def obtener_ultimo_lanzamiento(artista):
 
     if not portada:
 
-        print("La portada no contiene URL.")
+        print("No se encontró URL de portada.")
 
         return None
 
 
     # --------------------------------------------------------
-    # OBTENER VIDEO ID
+    # CONSULTAR DETALLE DEL LANZAMIENTO
     # --------------------------------------------------------
 
+    artistas_detalle = []
     video_id = None
 
 
@@ -274,6 +388,18 @@ def obtener_ultimo_lanzamiento(artista):
         try:
 
             detalle = ytmusic.get_album(browse_id)
+
+
+            # ------------------------------------------------
+            # ARTISTAS DEL LANZAMIENTO
+            # ------------------------------------------------
+
+            artistas_detalle = detalle.get("artists", [])
+
+
+            # ------------------------------------------------
+            # VIDEO ID
+            # ------------------------------------------------
 
             tracks = detalle.get("tracks", [])
 
@@ -285,12 +411,29 @@ def obtener_ultimo_lanzamiento(artista):
 
         except Exception as e:
 
-            print("Advertencia: no se pudo consultar el detalle.")
+            print("ADVERTENCIA: No se pudo obtener el detalle.")
             print(e)
 
 
     # --------------------------------------------------------
-    # CREAR URL DE YOUTUBE MUSIC
+    # FORMATEAR ARTISTAS
+    # --------------------------------------------------------
+
+    artistas_formateados = formatear_artistas(
+        artistas_detalle
+    )
+
+
+    # Si no encontramos artistas en el detalle,
+    # usamos el artista que estamos monitorizando.
+
+    if not artistas_formateados:
+
+        artistas_formateados = nombre_monitorizado
+
+
+    # --------------------------------------------------------
+    # URL DE YOUTUBE MUSIC
     # --------------------------------------------------------
 
     if video_id:
@@ -301,7 +444,9 @@ def obtener_ultimo_lanzamiento(artista):
 
     else:
 
-        consulta = f"{nombre} {titulo}"
+        consulta = (
+            f"{artistas_formateados} {titulo}"
+        )
 
         url_youtube = (
             "https://music.youtube.com/search?q="
@@ -310,11 +455,12 @@ def obtener_ultimo_lanzamiento(artista):
 
 
     # --------------------------------------------------------
-    # MOSTRAR DATOS
+    # MOSTRAR INFORMACIÓN
     # --------------------------------------------------------
 
     print()
-    print(f"Artista: {nombre}")
+    print("DATOS DEL LANZAMIENTO:")
+    print(f"Artista(s): {artistas_formateados}")
     print(f"Título: {titulo}")
     print(f"Tipo: {tipo}")
     print(f"Año: {anio}")
@@ -322,7 +468,7 @@ def obtener_ultimo_lanzamiento(artista):
 
 
     return {
-        "artista": nombre,
+        "artistas": artistas_formateados,
         "titulo": titulo,
         "tipo": tipo,
         "anio": anio,
@@ -332,13 +478,17 @@ def obtener_ultimo_lanzamiento(artista):
 
 
 # ============================================================
-# FUNCIÓN: PUBLICAR EN TELEGRAM
+# FUNCIÓN PARA PUBLICAR
 # ============================================================
 
 def publicar_lanzamiento(datos):
 
+    # --------------------------------------------------------
+    # TEXTO FINAL
+    # --------------------------------------------------------
+
     texto = (
-        f"🎤 <b>{datos['artista']}</b>\n"
+        f"🎤 <b>{datos['artistas']}</b>\n"
         f"<blockquote>🎵 <b>{datos['titulo']}</b></blockquote>\n"
         f"📀 <b>Tipo:</b> {datos['tipo']}\n"
         f"🗓 {datos['anio']}\n"
@@ -346,6 +496,10 @@ def publicar_lanzamiento(datos):
         f"@Cubaton_Music"
     )
 
+
+    # --------------------------------------------------------
+    # BOTÓN
+    # --------------------------------------------------------
 
     reply_markup = {
         "inline_keyboard": [
@@ -358,6 +512,10 @@ def publicar_lanzamiento(datos):
         ]
     }
 
+
+    # --------------------------------------------------------
+    # PAYLOAD
+    # --------------------------------------------------------
 
     payload = {
         "chat_id": TELEGRAM_CHANNEL,
@@ -374,6 +532,10 @@ def publicar_lanzamiento(datos):
     )
 
 
+    # --------------------------------------------------------
+    # ENVIAR
+    # --------------------------------------------------------
+
     try:
 
         respuesta = requests.post(
@@ -381,7 +543,6 @@ def publicar_lanzamiento(datos):
             json=payload,
             timeout=30
         )
-
 
     except Exception as e:
 
@@ -392,20 +553,23 @@ def publicar_lanzamiento(datos):
         return False
 
 
+    # --------------------------------------------------------
+    # COMPROBAR RESULTADO
+    # --------------------------------------------------------
+
     if respuesta.ok:
 
         resultado = respuesta.json()
 
         if resultado.get("ok"):
 
-            print()
             print("PUBLICADO CORRECTAMENTE.")
 
             return True
 
 
     print()
-    print("ERROR AL PUBLICAR EN TELEGRAM:")
+    print("ERROR AL PUBLICAR:")
     print(respuesta.text)
 
     return False
@@ -418,11 +582,12 @@ def publicar_lanzamiento(datos):
 print()
 print("=" * 60)
 print("CUBATON MUSIC")
-print("PUBLICACIÓN INICIAL DE 35 LANZAMIENTOS")
+print("REPUBLICACIÓN DE LOS 35 LANZAMIENTOS")
+print("VERSIÓN CON COLABORACIONES")
 print("=" * 60)
 
 print()
-print(f"Artistas configurados: {len(ARTISTAS)}")
+print(f"Total de artistas: {len(ARTISTAS)}")
 print(f"Canal: {TELEGRAM_CHANNEL}")
 
 
@@ -431,7 +596,7 @@ errores = 0
 
 
 # ============================================================
-# RECORRER LOS 35 ARTISTAS
+# RECORRER ARTISTAS
 # ============================================================
 
 for numero, artista in enumerate(ARTISTAS, start=1):
@@ -451,7 +616,10 @@ for numero, artista in enumerate(ARTISTAS, start=1):
         errores += 1
 
         print()
-        print(f"NO SE PUBLICÓ: {artista['name']}")
+        print(
+            f"NO SE PUDO PROCESAR: "
+            f"{artista['name']}"
+        )
 
         continue
 
@@ -469,14 +637,13 @@ for numero, artista in enumerate(ARTISTAS, start=1):
 
 
     # --------------------------------------------------------
-    # Pausa para evitar realizar las publicaciones demasiado
-    # rápidamente.
+    # PAUSA ENTRE PUBLICACIONES
     # --------------------------------------------------------
 
     if numero < len(ARTISTAS):
 
         print()
-        print("Esperando 3 segundos antes del siguiente artista...")
+        print("Esperando 3 segundos...")
         time.sleep(3)
 
 
@@ -497,13 +664,21 @@ print(f"Errores: {errores}")
 
 print()
 
+
 if errores == 0:
 
-    print("TODOS LOS LANZAMIENTOS FUERON PUBLICADOS CORRECTAMENTE.")
+    print(
+        "TODAS LAS 35 PUBLICACIONES "
+        "FUERON ENVIADAS CORRECTAMENTE."
+    )
 
 else:
 
-    print("El proceso terminó, pero algunos artistas tuvieron errores.")
+    print(
+        "El proceso terminó, pero hubo "
+        "artistas con errores."
+    )
+
 
 print()
 print("=" * 60)
