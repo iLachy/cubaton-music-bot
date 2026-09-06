@@ -1,20 +1,16 @@
-import os
-import requests
+from ytmusicapi import YTMusic
 
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHANNEL = "@Cubaton_Music"
+ytmusic = YTMusic()
 
-url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+results = ytmusic.search(
+    "Bebeshito",
+    filter="artists",
+    limit=5
+)
 
-data = {
-    "chat_id": CHANNEL,
-    "text": "🤖 Prueba automática\n\nCubaton Music está funcionando correctamente. 🇨🇺🎵"
-}
+print("=== RESULTADOS ===")
 
-response = requests.post(url, data=data)
-
-if response.ok:
-    print("✅ Mensaje enviado correctamente.")
-else:
-    print("❌ Error:", response.text)
-    raise SystemExit(1)
+for artist in results:
+    print(f"Nombre: {artist.get('artist')}")
+    print(f"ID: {artist.get('browseId')}")
+    print("---")
