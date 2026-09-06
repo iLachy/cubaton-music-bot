@@ -1,4 +1,6 @@
 from ytmusicapi import YTMusic
+import requests
+import re
 
 ytmusic = YTMusic()
 
@@ -44,185 +46,216 @@ ARTISTS = {
 }
 
 
-def extraer_referencia(url):
+def obtener_channel_id_desde_url(url):
     """
-    Extrae la referencia útil del enlace de YouTube Music.
+    Obtiene el channelId directamente desde un enlace de YouTube/YouTube Music.
 
-    Ejemplos:
-    https://music.youtube.com/@bebeshito
-    -> @bebeshito
+    Si el enlace ya contiene /channel/UC..., devuelve ese ID.
 
-    https://music.youtube.com/channel/UCxxxx
-    -> UCxxxx
+    Si contiene un @handle, consulta la página pública de YouTube
+    y busca el identificador del canal.
     """
+
+    # ---------------------------------------------------------
+    # CASO 1: URL que ya contiene channel/UC...
+    # ---------------------------------------------------------
 
     if "/channel/" in url:
-        return url.split("/channel/")[1].split("?")[0].strip()
 
-    if "/@" in url:
-        return "@" + url.split("/@")[1].split("?")[0].strip()
+        channel_id = url.split("/channel/")[1].split("?")[0].strip()
 
-    return url
+        return channel_id
 
 
-def buscar_por_handle(handle):
-    """
-    Busca un canal/artista utilizando el handle proporcionado.
-    """
+    # ---------------------------------------------------------
+    # CASO 2: URL con @handle
+    # ---------------------------------------------------------
 
-    resultados = ytmusic.search(
-        handle,
-        filter="artists",
-        limit=5
-    )
+    match = re.search(r"/@([^/?]+)", url)
 
-    return resultados
+    if not match:
+        return None
+
+
+    handle = match.group(1)
+
+    print(f"Handle detectado: @{handle}")
+
+    # Intentamos primero YouTube Music.
+    urls = [
+        f"https://music.youtube.com/@{handle}",
+        f"https://www.youtube.com/@{handle}",
+    ]
+
+
+    for pagina in urls:
+
+        try:
+
+            print(f"Consultando: {pagina}")
+
+            respuesta = requests.get(
+                pagina,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 "
+                        "(Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) "
+                        "Chrome/131.0 Safari/537.36"
+                    )
+                },
+                timeout=20
+            )
+
+            print(f"HTTP: {respuesta.status_code}")
+
+            if respuesta.status_code != 200:
+                continue
+
+
+            texto = respuesta.text
+
+
+            # Buscamos el channelId dentro del HTML.
+            patrones = [
+
+                r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
+
+                r'"externalId":"(UC[a-zA-Z0-9_-]{22})"',
+
+                r'channelId\\":\\"(UC[a-zA-Z0-9_-]{22})',
+
+            ]
+
+
+            for patron in patrones:
+
+                encontrado = re.search(patron, texto)
+
+                if encontrado:
+
+                    return encontrado.group(1)
+
+
+        except Exception as e:
+
+            print(f"Error consultando página: {e}")
+
+
+    return None
 
 
 def verificar_artista(nombre, url):
+
     print()
     print("=" * 90)
     print(f"ARTISTA: {nombre}")
-    print(f"ENLACE:  {url}")
+    print(f"URL:     {url}")
     print("=" * 90)
 
-    referencia = extraer_referencia(url)
+    channel_id = obtener_channel_id_desde_url(url)
 
-    print(f"Referencia: {referencia}")
-    print()
 
-    # Si ya tenemos directamente el channelId,
-    # no necesitamos buscarlo.
-    if referencia.startswith("UC"):
-        channel_id = referencia
-
-        try:
-            datos = ytmusic.get_artist(channel_id)
-
-            print("RESULTADO DIRECTO")
-            print("-" * 90)
-            print(f"Nombre YouTube Music : {datos.get('name')}")
-            print(f"Channel ID           : {channel_id}")
-            print(f"Seguidores           : {datos.get('subscribers')}")
-
-            print()
-            print("ESTADO: CANAL ENCONTRADO")
-
-            return {
-                "artist": nombre,
-                "youtube_name": datos.get("name"),
-                "channel_id": channel_id,
-                "url": url,
-                "status": "OK",
-            }
-
-        except Exception as e:
-            print("ESTADO: ERROR")
-            print(f"Detalle: {e}")
-
-            return {
-                "artist": nombre,
-                "youtube_name": None,
-                "channel_id": channel_id,
-                "url": url,
-                "status": "ERROR",
-            }
-
-    # Para los enlaces @handle hacemos una búsqueda.
-    try:
-        resultados = buscar_por_handle(referencia)
-
-        if not resultados:
-            print("NO SE ENCONTRARON RESULTADOS")
-
-            return {
-                "artist": nombre,
-                "youtube_name": None,
-                "channel_id": None,
-                "url": url,
-                "status": "NO_ENCONTRADO",
-            }
-
-        print("RESULTADOS ENCONTRADOS:")
-        print("-" * 90)
-
-        for i, resultado in enumerate(resultados, start=1):
-            print(
-                f"{i}. "
-                f"{resultado.get('artist')} "
-                f"| ID: {resultado.get('browseId')}"
-            )
-
-        # Tomamos el primer resultado para la verificación inicial.
-        primero = resultados[0]
-
-        channel_id = primero.get("browseId")
-        youtube_name = primero.get("artist")
+    if not channel_id:
 
         print()
-        print(f"SELECCIONADO: {youtube_name}")
-        print(f"CHANNEL ID:   {channel_id}")
-
-        if channel_id:
-            try:
-                datos = ytmusic.get_artist(channel_id)
-
-                print()
-                print("DATOS DEL CANAL")
-                print("-" * 90)
-                print(f"Nombre YouTube Music : {datos.get('name')}")
-                print(f"Channel ID           : {channel_id}")
-                print(f"Seguidores           : {datos.get('subscribers')}")
-
-                return {
-                    "artist": nombre,
-                    "youtube_name": datos.get("name"),
-                    "channel_id": channel_id,
-                    "url": url,
-                    "status": "OK",
-                }
-
-            except Exception as e:
-                print()
-                print(f"No se pudo abrir el perfil: {e}")
+        print("❌ NO SE PUDO OBTENER EL CHANNEL ID")
 
         return {
             "artist": nombre,
-            "youtube_name": youtube_name,
-            "channel_id": channel_id,
             "url": url,
-            "status": "REVISAR",
+            "channel_id": None,
+            "youtube_name": None,
+            "status": "NO_ENCONTRADO",
         }
 
-    except Exception as e:
-        print(f"ERROR: {e}")
+
+    print()
+    print(f"Channel ID encontrado: {channel_id}")
+
+
+    try:
+
+        datos = ytmusic.get_artist(channel_id)
+
+        nombre_youtube = datos.get("name")
+
+        seguidores = datos.get("subscribers")
+
+
+        print()
+        print("DATOS DE YOUTUBE MUSIC")
+        print("-" * 90)
+
+        print(f"Nombre:      {nombre_youtube}")
+        print(f"Channel ID:  {channel_id}")
+        print(f"Seguidores:  {seguidores}")
+
+        print()
+        print("✅ CANAL ENCONTRADO")
+
 
         return {
             "artist": nombre,
-            "youtube_name": None,
-            "channel_id": None,
             "url": url,
-            "status": "ERROR",
+            "channel_id": channel_id,
+            "youtube_name": nombre_youtube,
+            "status": "OK",
+        }
+
+
+    except Exception as e:
+
+        print()
+        print("⚠️ CHANNEL ID ENCONTRADO, PERO YTMUSICAPI NO PUDO ABRIRLO")
+        print(f"Error: {e}")
+
+        return {
+            "artist": nombre,
+            "url": url,
+            "channel_id": channel_id,
+            "youtube_name": None,
+            "status": "ID_ENCONTRADO",
         }
 
 
 print()
 print("=" * 90)
-print("VERIFICACIÓN DE LOS 38 ARTISTAS")
-print("YOUTUBE MUSIC")
+print("PASO 16")
+print("RESOLUCIÓN DIRECTA DE LOS 38 CANALES")
 print("=" * 90)
 
 print()
 print(f"Total de artistas: {len(ARTISTS)}")
-print()
 
-resultados_finales = []
+
+resultados = []
+
 
 for nombre, url in ARTISTS.items():
 
-    resultado = verificar_artista(nombre, url)
+    try:
 
-    resultados_finales.append(resultado)
+        resultado = verificar_artista(nombre, url)
+
+        resultados.append(resultado)
+
+    except Exception as e:
+
+        print()
+        print("=" * 90)
+        print(f"ERROR GENERAL: {nombre}")
+        print(f"Detalle: {e}")
+        print("=" * 90)
+
+        resultados.append({
+            "artist": nombre,
+            "url": url,
+            "channel_id": None,
+            "youtube_name": None,
+            "status": "ERROR",
+        })
 
 
 print()
@@ -231,7 +264,7 @@ print("=" * 90)
 print("RESUMEN FINAL")
 print("=" * 90)
 
-for resultado in resultados_finales:
+for resultado in resultados:
 
     print(
         f"{resultado['artist']} "
@@ -242,6 +275,7 @@ for resultado in resultados_finales:
         f"-> "
         f"{resultado.get('status')}"
     )
+
 
 print()
 print("=" * 90)
