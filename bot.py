@@ -27,135 +27,107 @@ artista = ytmusic.get_artist(ARTIST_CHANNEL_ID)
 
 
 # ============================================================
-# BUSCAR EL LANZAMIENTO MÁS RECIENTE
-# ============================================================
-
-lanzamientos = []
-
-if "singles" in artista:
-    lanzamientos.extend(artista["singles"].get("results", []))
-
-if "albums" in artista:
-    lanzamientos.extend(artista["albums"].get("results", []))
-
-
-if not lanzamientos:
-    print("No se encontraron lanzamientos.")
-    raise SystemExit
-
-
-# Tomamos el primero, que corresponde al más reciente
-lanzamiento = lanzamientos[0]
-
-print()
-print("=" * 60)
-print("LANZAMIENTO ENCONTRADO")
-print("=" * 60)
-
-print(f"Título: {lanzamiento.get('title')}")
-print(f"Tipo: {lanzamiento.get('type')}")
-print(f"Año: {lanzamiento.get('year')}")
-print(f"Browse ID: {lanzamiento.get('browseId')}")
-
-
-# ============================================================
-# CONSULTAR DETALLE DEL LANZAMIENTO
-# ============================================================
-
-browse_id = lanzamiento.get("browseId")
-
-if not browse_id:
-    print()
-    print("El lanzamiento no tiene browseId.")
-    raise SystemExit
-
-
-print()
-print("=" * 60)
-print("CONSULTANDO DETALLE DEL LANZAMIENTO")
-print("=" * 60)
-
-detalle = ytmusic.get_album(browse_id)
-
-
-# ============================================================
-# BUSCAR VIDEO ID
-# ============================================================
-
-tracks = detalle.get("tracks", [])
-
-if not tracks:
-    print()
-    print("El lanzamiento no contiene tracks.")
-    raise SystemExit
-
-
-track = tracks[0]
-
-video_id = track.get("videoId")
-
-
-print()
-print("=" * 60)
-print("TRACK ENCONTRADO")
-print("=" * 60)
-
-print(f"Título: {track.get('title')}")
-print(f"Video ID: {video_id}")
-
-
-if not video_id:
-    print()
-    print("No se encontró videoId.")
-    raise SystemExit
-
-
-# ============================================================
-# CONSULTAR INFORMACIÓN DEL VIDEO
+# INFORMACIÓN GENERAL
 # ============================================================
 
 print()
 print("=" * 60)
-print("CONSULTANDO get_song()")
+print("INFORMACIÓN DEL ARTISTA")
+print("=" * 60)
+
+print(f"Nombre: {artista.get('name')}")
+print(f"Browse ID: {artista.get('channelId')}")
+
+
+# ============================================================
+# CONSULTAR LANZAMIENTOS CON get_artist_albums()
+# ============================================================
+
+print()
+print("=" * 60)
+print("CONSULTANDO get_artist_albums()")
 print("=" * 60)
 
 try:
-    song = ytmusic.get_song(video_id)
+    lanzamientos = ytmusic.get_artist_albums(ARTIST_CHANNEL_ID)
 
 except Exception as e:
     print()
-    print("ERROR AL CONSULTAR get_song():")
+    print("ERROR AL CONSULTAR get_artist_albums():")
     print(e)
     raise SystemExit
 
 
 # ============================================================
-# MOSTRAR TODOS LOS CAMPOS
+# MOSTRAR RESULTADO
 # ============================================================
 
 print()
 print("=" * 60)
-print("TODOS LOS CAMPOS DE get_song()")
+print("RESULTADO DE get_artist_albums()")
 print("=" * 60)
 
-pprint(song)
+print(f"Cantidad de lanzamientos: {len(lanzamientos)}")
 
 
 # ============================================================
-# BUSCAR FECHAS
+# MOSTRAR LOS PRIMEROS LANZAMIENTOS
+# ============================================================
+
+for i, lanzamiento in enumerate(lanzamientos[:10], start=1):
+
+    print()
+    print("-" * 60)
+    print(f"LANZAMIENTO #{i}")
+    print("-" * 60)
+
+    pprint(lanzamiento)
+
+
+# ============================================================
+# BUSCAR ESPECÍFICAMENTE ENGACHADA COMPLETA
 # ============================================================
 
 print()
 print("=" * 60)
-print("FECHAS ENCONTRADAS")
+print("BUSCANDO: ENGANCHADA COMPLETA")
 print("=" * 60)
 
-print(f"publishDate: {song.get('publishDate')}")
-print(f"uploadDate: {song.get('uploadDate')}")
+encontrado = None
+
+for lanzamiento in lanzamientos:
+
+    titulo = str(lanzamiento.get("title", "")).lower()
+
+    if "enganchada completa" in titulo:
+        encontrado = lanzamiento
+        break
+
+
+if encontrado:
+
+    print()
+    print("LANZAMIENTO ENCONTRADO:")
+    print()
+
+    pprint(encontrado)
+
+    print()
+    print("=" * 60)
+    print("CAMPOS DISPONIBLES")
+    print("=" * 60)
+
+    for clave, valor in encontrado.items():
+        print(f"{clave}: {valor}")
+
+else:
+
+    print()
+    print("No se encontró 'Enganchada Completa'.")
 
 
 # ============================================================
-# MOSTRAR POSIBLES CAMPOS DE METADATOS
+# BUSCAR CUALQUIER CAMPO RELACIONADO CON FECHA
 # ============================================================
 
 print()
@@ -163,7 +135,28 @@ print("=" * 60)
 print("CAMPOS RELACIONADOS CON FECHA")
 print("=" * 60)
 
-for clave, valor in song.items():
+if encontrado:
 
-    if "date" in clave.lower() or "time" in clave.lower():
-        print(f"{clave}: {valor}")
+    encontrados_fecha = False
+
+    for clave, valor in encontrado.items():
+
+        clave_lower = clave.lower()
+
+        if (
+            "date" in clave_lower
+            or "year" in clave_lower
+            or "time" in clave_lower
+            or "release" in clave_lower
+        ):
+            print(f"{clave}: {valor}")
+            encontrados_fecha = True
+
+    if not encontrados_fecha:
+        print("No se encontraron campos de fecha adicionales.")
+
+
+print()
+print("=" * 60)
+print("FIN DEL DIAGNÓSTICO")
+print("=" * 60)
