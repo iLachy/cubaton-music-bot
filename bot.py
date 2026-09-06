@@ -1,25 +1,20 @@
-name: Prueba Cubaton Music
+import os
+import requests
 
-on:
-  workflow_dispatch:
+TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+CHANNEL = "@Cubaton_Music"
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
+url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-    steps:
-      - name: Descargar código
-        uses: actions/checkout@v4
+data = {
+    "chat_id": CHANNEL,
+    "text": "🤖 Prueba automática\n\nCubaton Music está funcionando correctamente. 🇨🇺🎵"
+}
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+response = requests.post(url, data=data)
 
-      - name: Instalar requests
-        run: pip install requests
-
-      - name: Ejecutar prueba
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: python bot.py
+if response.ok:
+    print("✅ Mensaje enviado correctamente.")
+else:
+    print("❌ Error:", response.text)
+    raise SystemExit(1)
