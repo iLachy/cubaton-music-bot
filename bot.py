@@ -1,14 +1,23 @@
 from ytmusicapi import YTMusic
-import re
 import time
+import re
+
+
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
 
 ytmusic = YTMusic()
+
+
+# ============================================================
+# 35 ARTISTAS DEFINITIVOS
+# ============================================================
 
 ARTISTS = {
     "Bebeshito": "UCpVfWS-cPOE2sYqsFuuP_Qg",
     "Charly & Johayron": "UCnwEtOQyXJUUuBhcTgImdfQ",
     "Dany Ome": "UCJQEm9t4KjDn-I8Fahf4Uqw",
-    "Kevincito El 13": "UCDxpdRMANSbNf_Oy3FwBCRw",
     "Wampi": "UCbfzw8u1lCwDMv443StJEOw",
     "El Taiger": "UCoYtt7bGCV5RyUweyQgqQ4A",
     "Ja Rulay": "UCcaU4COep7mj8kbXwS24JFQ",
@@ -31,7 +40,6 @@ ARTISTS = {
     "Fixty Ordara": "UCDHDCbVOQywsLCsCZ8PH-AA",
     "El Kamel": "UCPnWcazEV7QM0H7qBx6NVXg",
     "Velito el Bufón": "UCRA9cRfAJXuxDRcFnoB7pwg",
-    "Helabusador": "UC89ct8d1ZKEXS03nSpntgPg",
     "Un Titico": "UCT2KiGFSPZIF3DR9UIN2fYw",
     "Musteerifa": "UCiT8PzlQqtPC7lWFh3--4jw",
     "Chocolate MC": "UCYVuThmAmbXxk1o9Un5Cc_w",
@@ -45,7 +53,14 @@ ARTISTS = {
 }
 
 
+# ============================================================
+# FUNCIONES AUXILIARES
+# ============================================================
+
 def normalize(text):
+    """
+    Normaliza texto para poder comparar títulos.
+    """
     if not text:
         return ""
 
@@ -59,7 +74,6 @@ def normalize(text):
         "ú": "u",
         "ü": "u",
         "ñ": "n",
-        "&": "and",
     }
 
     for old, new in replacements.items():
@@ -71,56 +85,52 @@ def normalize(text):
     return text
 
 
-def names_match(expected, returned):
-    if not returned:
-        return False
+def get_title(item):
+    """
+    Obtiene el título de un resultado de YouTube Music.
+    """
+    if not isinstance(item, dict):
+        return None
 
-    e = normalize(expected)
-    r = normalize(returned)
-
-    if e == r:
-        return True
-
-    if e in r or r in e:
-        return True
-
-    e_words = set(e.split())
-    r_words = set(r.split())
-
-    ignored = {
-        "el",
-        "la",
-        "los",
-        "las",
-        "de",
-        "y",
-        "and",
-        "mc",
-        "official",
-        "oficial",
-        "music",
-        "musica",
-    }
-
-    e_words -= ignored
-    r_words -= ignored
-
-    if e_words and r_words:
-        return bool(e_words & r_words)
-
-    return False
-
-
-def get_subscribers(info):
     return (
-        info.get("subscribers")
-        or info.get("subscriberCount")
-        or info.get("subscribersText")
-        or "?"
+        item.get("title")
+        or item.get("name")
     )
 
 
-def extract_items(data):
+def get_item_type(item):
+    """
+    Intenta determinar si es álbum, sencillo, canción, etc.
+    """
+    if not isinstance(item, dict):
+        return ""
+
+    return (
+        item.get("type")
+        or item.get("resultType")
+        or ""
+    )
+
+
+def get_year(item):
+    """
+    Obtiene el año si YouTube Music lo proporciona.
+    """
+    if not isinstance(item, dict):
+        return ""
+
+    return (
+        item.get("year")
+        or item.get("releaseYear")
+        or ""
+    )
+
+
+def extract_results(data):
+    """
+    Convierte diferentes formatos de respuesta
+    de ytmusicapi en una lista.
+    """
     if not data:
         return []
 
@@ -133,58 +143,14 @@ def extract_items(data):
     return data
 
 
-def show_release(item):
-    if not isinstance(item, dict):
-        return None
+# ============================================================
+# OBTENER INFORMACIÓN DEL ARTISTA
+# ============================================================
 
-    title = item.get("title") or item.get("name")
+def get_artist_info(artist_name, channel_id):
 
-    if not title:
-        return None
-
-    year = (
-        item.get("year")
-        or item.get("releaseYear")
-        or ""
-    )
-
-    item_type = (
-        item.get("type")
-        or item.get("resultType")
-        or ""
-    )
-
-    if year:
-        return f"{title} ({year})"
-
-    if item_type:
-        return f"{title} [{item_type}]"
-
-    return title
-
-
-def get_releases(info):
-    releases = []
-
-    for key in [
-        "albums",
-        "singles",
-        "songs",
-        "featuredOn",
-    ]:
-        items = extract_items(info.get(key))
-
-        for item in items:
-            title = show_release(item)
-
-            if title and title not in releases:
-                releases.append(title)
-
-    return releases[:10]
-
-
-def check_artist(expected, channel_id):
     try:
+
         info = ytmusic.get_artist(channel_id)
 
         returned_name = (
@@ -193,130 +159,262 @@ def check_artist(expected, channel_id):
             or info.get("title")
         )
 
-        subscribers = get_subscribers(info)
-
-        releases = get_releases(info)
-
-        if not names_match(expected, returned_name):
-            return {
-                "status": "RECHAZAR",
-                "name": returned_name,
-                "subscribers": subscribers,
-                "releases": releases,
-            }
+        subscribers = (
+            info.get("subscribers")
+            or info.get("subscriberCount")
+            or info.get("subscribersText")
+            or "?"
+        )
 
         return {
-            "status": "OK",
+            "ok": True,
             "name": returned_name,
             "subscribers": subscribers,
-            "releases": releases,
+            "info": info,
         }
 
     except Exception as e:
+
         return {
-            "status": "ERROR",
+            "ok": False,
             "name": None,
             "subscribers": "?",
-            "releases": [],
-            "error": str(e)[:250],
+            "info": {},
+            "error": str(e),
         }
 
 
+# ============================================================
+# OBTENER LANZAMIENTOS VISIBLES
+# ============================================================
+
+def get_visible_releases(info):
+
+    releases = []
+
+    # Primero intentamos utilizar los elementos
+    # que ya vienen en get_artist().
+    for key in [
+        "albums",
+        "singles",
+    ]:
+
+        items = extract_results(
+            info.get(key)
+        )
+
+        for item in items:
+
+            title = get_title(item)
+
+            if not title:
+                continue
+
+            releases.append({
+                "title": title,
+                "type": get_item_type(item),
+                "year": get_year(item),
+                "raw": item,
+            })
+
+    return releases
+
+
+# ============================================================
+# MOSTRAR LANZAMIENTOS
+# ============================================================
+
+def print_releases(releases):
+
+    if not releases:
+
+        print(
+            "  No se encontraron lanzamientos "
+            "en la respuesta inicial."
+        )
+
+        return
+
+    for release in releases:
+
+        title = release["title"]
+        year = release["year"]
+        item_type = release["type"]
+
+        extra = []
+
+        if year:
+            extra.append(str(year))
+
+        if item_type:
+            extra.append(str(item_type))
+
+        if extra:
+            print(
+                "  - "
+                + title
+                + " ["
+                + " | ".join(extra)
+                + "]"
+            )
+        else:
+            print(
+                "  - "
+                + title
+            )
+
+
+# ============================================================
+# PROCESAR ARTISTA
+# ============================================================
+
+def process_artist(artist_name, channel_id):
+
+    print()
+    print("=" * 70)
+    print(artist_name)
+    print("=" * 70)
+
+    result = get_artist_info(
+        artist_name,
+        channel_id
+    )
+
+    if not result["ok"]:
+
+        print("ERROR AL CONSULTAR ARTISTA")
+        print(result["error"])
+
+        return {
+            "artist": artist_name,
+            "ok": False,
+            "releases": [],
+        }
+
+    print(
+        "Nombre YouTube Music:",
+        result["name"]
+    )
+
+    print(
+        "Seguidores:",
+        result["subscribers"]
+    )
+
+    releases = get_visible_releases(
+        result["info"]
+    )
+
+    print()
+    print("Lanzamientos visibles:")
+
+    print_releases(releases)
+
+    return {
+        "artist": artist_name,
+        "ok": True,
+        "releases": releases,
+    }
+
+
+# ============================================================
+# PROGRAMA PRINCIPAL
+# ============================================================
+
 def main():
-    print("=" * 75)
-    print("PRUEBA DEFINITIVA — 37 ARTISTAS DE CUBATON MUSIC")
-    print("=" * 75)
+
+    print("=" * 70)
+    print("CUBATON MUSIC")
+    print("PRUEBA DE DETECCIÓN DE LANZAMIENTOS")
+    print("=" * 70)
+
+    print()
+    print(
+        "Artistas configurados:",
+        len(ARTISTS)
+    )
+
+    print(
+        "Modo: SOLO LECTURA"
+    )
+
+    print(
+        "Telegram: NO SE PUBLICARÁ NADA"
+    )
+
     print()
 
-    ok = 0
-    rejected = 0
-    errors = 0
+    total_artists = 0
+    successful_artists = 0
+    failed_artists = 0
+    total_releases = 0
 
-    for number, (artist, channel_id) in enumerate(
-        ARTISTS.items(),
-        start=1
-    ):
-        print()
-        print("-" * 75)
-        print(f"[{number}/37] {artist}")
-        print("-" * 75)
+    all_results = []
 
-        print("ID:", channel_id)
+    for artist_name, channel_id in ARTISTS.items():
 
-        result = check_artist(
-            artist,
+        total_artists += 1
+
+        result = process_artist(
+            artist_name,
             channel_id
         )
 
-        print(
-            "YouTube Music:",
-            result["name"]
-        )
+        all_results.append(result)
 
-        print(
-            "Seguidores:",
-            result["subscribers"]
-        )
-
-        print(
-            "RESULTADO:",
-            result["status"]
-        )
-
-        if result["releases"]:
-            print("Lanzamientos encontrados:")
-
-            for release in result["releases"]:
-                print("  -", release)
-        else:
-            print(
-                "Lanzamientos encontrados: "
-                "ninguno visible en esta consulta"
+        if result["ok"]:
+            successful_artists += 1
+            total_releases += len(
+                result["releases"]
             )
-
-        if result["status"] == "OK":
-            ok += 1
-
-        elif result["status"] == "RECHAZAR":
-            rejected += 1
-
         else:
-            errors += 1
+            failed_artists += 1
 
-            if result.get("error"):
-                print(
-                    "Error:",
-                    result["error"]
-                )
-
-        time.sleep(0.8)
+        # Pequeña pausa para no hacer
+        # demasiadas consultas seguidas.
+        time.sleep(1)
 
     print()
     print()
-    print("=" * 75)
-    print("RESUMEN")
-    print("=" * 75)
+    print("=" * 70)
+    print("RESUMEN FINAL")
+    print("=" * 70)
 
-    print("Artistas comprobados:", len(ARTISTS))
-    print("OK:", ok)
-    print("RECHAZADOS:", rejected)
-    print("ERRORES:", errors)
+    print(
+        "Artistas configurados:",
+        total_artists
+    )
+
+    print(
+        "Consultas exitosas:",
+        successful_artists
+    )
+
+    print(
+        "Consultas con error:",
+        failed_artists
+    )
+
+    print(
+        "Lanzamientos encontrados:",
+        total_releases
+    )
 
     print()
 
-    if ok == 37 and rejected == 0:
+    if successful_artists == 35:
         print(
-            "EXCELENTE: los 37 artistas fueron identificados correctamente."
+            "OK: los 35 artistas fueron consultados correctamente."
         )
     else:
         print(
-            "ATENCIÓN: todavía hay artistas que necesitan revisión."
+            "ATENCIÓN: algunos artistas tuvieron problemas."
         )
 
     print()
-    print("=" * 75)
-    print("FIN")
-    print("=" * 75)
+    print("=" * 70)
+    print("FIN DE LA PRUEBA")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
