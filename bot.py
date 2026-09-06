@@ -1,65 +1,193 @@
 from ytmusicapi import YTMusic
-import requests
 import re
-import html
-
+import time
 
 ytmusic = YTMusic()
 
+ARTISTS = [
+    "Bebeshito",
+    "Charly & Johayron",
+    "Dany Ome",
+    "Kevincito El 13",
+    "Wampi",
+    "El Taiger",
+    "Ja Rulay",
+    "L Kimii",
+    "El Dray",
+    "Mauro y El Pitu",
+    "Yirow Y El Tingo",
+    "Nany La Kbra",
+    "Ya Ice Dilan",
+    "Rey Tony",
+    "Baby Maikol",
+    "Payaso X Ley",
+    "Kaly Y Kowa",
+    "Wildey",
+    "Wow Popy",
+    "Talent Fuego",
+    "Mawell",
+    "Harryson",
+    "El Chulo",
+    "Fixty Ordara",
+    "El Kamel",
+    "Velito el Bufón",
+    "Helabusador",
+    "Un Titico",
+    "Musteerifa",
+    "Chocolate MC",
+    "El Chacal",
+    "El Micha",
+    "Yomil",
+    "Jacob Forever",
+    "Gente de Zona",
+    "La Diosa",
+    "Seidy La Niña",
+]
 
-ARTISTS = {
-    "Bebeshito": "https://music.youtube.com/@bebeshito",
-    "Charly & Johayron": "https://music.youtube.com/@charlyjohayron",
-    "Dany Ome": "https://music.youtube.com/@danyome",
-    "Kevincito El 13": "https://music.youtube.com/@kevincitoel13",
-    "Wampi": "https://music.youtube.com/@wampi",
-    "El Taiger": "https://music.youtube.com/@eltaiger",
-    "Ja Rulay": "https://music.youtube.com/@jarulay",
-    "L Kimii": "https://music.youtube.com/@lkimii9923",
-    "El Dray": "https://music.youtube.com/@eseldray",
-    "Mauro y El Pitu": "https://music.youtube.com/@mauropitu_",
-    "Yirow Y El Tingo": "https://music.youtube.com/@elyirowyeltingo",
-    "Nany La Kbra": "https://music.youtube.com/channel/UCG4lSNdNx_LuLnN2EW6uWwQ",
-    "Ya Ice Dilan": "https://music.youtube.com/channel/UC9aJbR9Q8nscvZaMw_cH4Ww",
-    "Rey Tony": "https://music.youtube.com/channel/UCDhExL0uVtumv_DEjPPq5qg",
-    "Baby Maikol": "https://music.youtube.com/@babyymaikol",
-    "Payaso X Ley": "https://music.youtube.com/@payasoxley",
-    "Kaly Y Kowa": "https://music.youtube.com/@kalyykowa",
-    "Wildey": "https://music.youtube.com/@wildeylucho",
-    "Wow Popy": "https://music.youtube.com/@wowpopyoficiall",
-    "Talent Fuego": "https://music.youtube.com/@talentfuego",
-    "Mawell": "https://music.youtube.com/@mawelloficial",
-    "Harryson": "https://music.youtube.com/@harryson1pesao",
-    "El Chulo": "https://music.youtube.com/@elchulopa",
-    "Fixty Ordara": "https://music.youtube.com/channel/UCDHDCbVOQywsLCsCZ8PH-AA",
-    "El Kamel": "https://music.youtube.com/@elkameloficial",
-    "Velito el Bufón": "https://music.youtube.com/@velitoelbufon",
-    "Helabusador": "https://music.youtube.com/channel/UC89ct8d1ZKEXS03nSpntgPg",
-    "Un Titico": "https://music.youtube.com/@untitico",
-    "Musteerifa": "https://music.youtube.com/channel/UCiT8PzlQqtPC7lWFh3--4jw",
-    "Chocolate MC": "https://music.youtube.com/@chocolatemcoficialyoutube",
-    "El Chacal": "https://music.youtube.com/@chacalrlm",
-    "El Micha": "https://music.youtube.com/@elmichaoficial1",
-    "Yomil": "https://music.youtube.com/@yomil_champions",
-    "Jacob Forever": "https://music.youtube.com/@jacobforeveroficial",
-    "Gente de Zona": "https://music.youtube.com/@gentedezonaoficial",
-    "La Diosa": "https://music.youtube.com/@ladiosa",
-    "Seidy La Niña": "https://music.youtube.com/@seidylanina",
+# IDs candidatos encontrados anteriormente.
+# NO añadimos DJs, productores ni artistas fuera de la lista.
+CANDIDATES = {
+    "Bebeshito": [
+        "UCpVfWS-cPOE2sYqsFuuP_Qg",
+        "UCw-vCTQtXIE-S40-7kva36A",
+    ],
+    "Charly & Johayron": [
+        "UCnwEtOQyXJUUuBhcTgImdfQ",
+    ],
+    "Dany Ome": [
+        "UCJQEm9t4KjDn-I8Fahf4Uqw",
+        "UCuBGNyEpfrbbhZ3r3vIjnfg",
+    ],
+    "Kevincito El 13": [
+        "UCDxpdRMANSbNf_Oy3FwBCRw",
+        "UC1lU2Dft38ZJRPiX3UHPxJw",
+    ],
+    "Wampi": [
+        "UCbfzw8u1lCwDMv443StJEOw",
+        "UCpEUxFe9-QlnjiCcNkc0zjA",
+    ],
+    "El Taiger": [
+        "UCoYtt7bGCV5RyUweyQgqQ4A",
+        "UC7zf0CWAbFPbzTitZ_nd_qg",
+    ],
+    "Ja Rulay": [
+        "UCcaU4COep7mj8kbXwS24JFQ",
+        "UC5HZiMlDJb5nkotDctm-RGw",
+    ],
+    "L Kimii": [
+        "UCMyQosiL8iVUtXPIm1UZJQg",
+    ],
+    "El Dray": [
+        "UC4kpn8y8QXYXmyDn8HJKD8Q",
+    ],
+    "Mauro y El Pitu": [
+        "UCvN1mRFfAfWYTiIkM70qUWA",
+    ],
+    "Yirow Y El Tingo": [
+        "UCEq3_5h1Xi_vLbytP7OzuNA",
+    ],
+    "Nany La Kbra": [
+        "UCG4lSNdNx_LuLnN2EW6uWwQ",
+    ],
+    "Ya Ice Dilan": [
+        "UC9aJbR9Q8nscvZaMw_cH4Ww",
+    ],
+    "Rey Tony": [
+        "UCDhExL0uVtumv_DEjPPq5qg",
+    ],
+    "Baby Maikol": [
+        "UCP5R6Mgbk_bgtgzZguLNKdA",
+        "UCoZ9SeN4QehLThj85YsdkVA",
+    ],
+    "Payaso X Ley": [
+        "UCauTaqBvFqqqJTu3B4Wc1GA",
+        "UCz4FLcaulTBuDmXKYnO5dTg",
+    ],
+    "Kaly Y Kowa": [
+        "UCSfR51myQhs2ZcdzrWo0Z4w",
+        "UC40wOBt1kO3U5swWGag9PFw",
+    ],
+    "Wildey": [
+        "UCmFS-VSa4Wf3F1wdWS-8p_g",
+        "UCK7SfNGK-9Z-g1DI3csyviQ",
+    ],
+    "Wow Popy": [
+        "UCtFkN8UFxT_MuNdySlfuFuA",
+        "UC7mIT0NJj460QeI-DUH75RA",
+    ],
+    "Talent Fuego": [
+        "UC0dVmcXfNa7lVeUBve3_FXw",
+        "UCEU2UP8DamKzULakxOwsxAA",
+    ],
+    "Mawell": [
+        "UCL6P-jUDZEKBA-Lb6WFccWg",
+        "UCAmgphQnzSogyskD7d5skng",
+    ],
+    "Harryson": [
+        "UC2ihX5uoblnN4wsA-ayIAAA",
+    ],
+    "El Chulo": [
+        "UCiT8VNdnpeYnCTPJZoqym9g",
+        "UCOx3mWPFzMwwfn5h_obJOaw",
+    ],
+    "Fixty Ordara": [
+        "UCDHDCbVOQywsLCsCZ8PH-AA",
+    ],
+    "El Kamel": [
+        "UCPnWcazEV7QM0H7qBx6NVXg",
+    ],
+    "Velito el Bufón": [
+        "UCRA9cRfAJXuxDRcFnoB7pwg",
+        "UC9LVti7i-zRT1nNsC8V2vbQ",
+    ],
+    "Helabusador": [
+        "UC89ct8d1ZKEXS03nSpntgPg",
+    ],
+    "Un Titico": [
+        "UCT2KiGFSPZIF3DR9UIN2fYw",
+    ],
+    "Musteerifa": [
+        "UCiT8PzlQqtPC7lWFh3--4jw",
+    ],
+    "Chocolate MC": [
+        "UCYVuThmAmbXxk1o9Un5Cc_w",
+    ],
+    "El Chacal": [
+        "UCJt4IsSmUjqTaamhCJoKK_g",
+        "UCifSmywTB4gu0_Qki0pqLQg",
+    ],
+    "El Micha": [
+        "UCHhrMSqe_C1E_JBEz3mRlew",
+    ],
+    "Yomil": [
+        "UCPfXwOpwRIbVsqqTsgt4i5g",
+        "UC6-tqQHbPmApR086XphYTtg",
+    ],
+    "Jacob Forever": [
+        "UCJ1-Pwsroy-gzMqlfKDF4Hg",
+        "UCACtbFEthbvnK7eC2EESvvg",
+    ],
+    "Gente de Zona": [
+        "UCl2KQVc_GFH081i7b9CJQug",
+    ],
+    "La Diosa": [
+        "UChbVOQHgq01JoHY4axuWV0A",
+        "UCLuoDT4ln0HhExK_o5ieIzg",
+    ],
+    "Seidy La Niña": [
+        "UCFqYfgj_7h3ZUkBnyYS-TFg",
+        "UCSBAeH8Qg4kq1AiN85zUiRA",
+    ],
 }
 
 
-def normalizar(texto):
-    """
-    Normaliza texto para poder comparar nombres.
-    """
-
-    if not texto:
+def normalize(text):
+    if not text:
         return ""
 
-    texto = html.unescape(texto)
-    texto = texto.lower().strip()
+    text = text.lower()
 
-    reemplazos = {
+    replacements = {
         "&": "and",
         "á": "a",
         "é": "e",
@@ -67,481 +195,259 @@ def normalizar(texto):
         "ó": "o",
         "ú": "u",
         "ü": "u",
+        "ñ": "n",
     }
 
-    for viejo, nuevo in reemplazos.items():
-        texto = texto.replace(viejo, nuevo)
+    for old, new in replacements.items():
+        text = text.replace(old, new)
 
-    texto = re.sub(r"[^a-z0-9]+", " ", texto)
+    text = re.sub(r"[^a-z0-9 ]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
 
-    return " ".join(texto.split())
+    return text
 
 
-def nombres_compatibles(esperado, obtenido):
-    """
-    Comprueba si el nombre de YouTube Music es razonablemente
-    compatible con el nombre que nosotros esperamos.
-
-    No intenta ser demasiado permisivo.
-    """
-
-    a = normalizar(esperado)
-    b = normalizar(obtenido)
-
-    if not a or not b:
+def compatible(expected, returned):
+    if not returned:
         return False
 
-    if a == b:
+    e = normalize(expected)
+    r = normalize(returned)
+
+    # Coincidencia directa
+    if e == r:
         return True
 
-    palabras_a = set(a.split())
-    palabras_b = set(b.split())
-
-    # Coincidencia exacta de todas las palabras importantes.
-    if palabras_a and palabras_a.issubset(palabras_b):
+    # Uno contiene al otro
+    if e in r or r in e:
         return True
 
-    if palabras_b and palabras_b.issubset(palabras_a):
-        return True
+    # Comparación por palabras importantes
+    e_words = set(e.split())
+    r_words = set(r.split())
+
+    important = {
+        "el", "la", "los", "las",
+        "y", "de", "mc", "official",
+        "oficial", "music", "musica"
+    }
+
+    e_words -= important
+    r_words -= important
+
+    if e_words and r_words:
+        overlap = len(e_words & r_words)
+
+        if overlap >= max(1, min(len(e_words), len(r_words))):
+            return True
 
     return False
 
 
-def obtener_channel_id_desde_channel_url(url):
-    """
-    Si la URL ya contiene /channel/UC..., devuelve directamente
-    ese Channel ID.
-    """
-
-    match = re.search(
-        r"/channel/(UC[a-zA-Z0-9_-]{22})",
-        url
+def get_subscribers(info):
+    return (
+        info.get("subscribers")
+        or info.get("subscriberCount")
+        or info.get("subscribersText")
+        or "?"
     )
 
-    if match:
-        return match.group(1)
 
-    return None
+def get_description(info):
+    description = info.get("description")
 
+    if not description:
+        return ""
 
-def obtener_handle(url):
-    """
-    Extrae el @handle de una URL.
-    """
+    description = str(description).replace("\n", " ").strip()
 
-    match = re.search(
-        r"/@([^/?]+)",
-        url
-    )
+    if len(description) > 180:
+        description = description[:180] + "..."
 
-    if match:
-        return match.group(1)
-
-    return None
+    return description
 
 
-def obtener_html_canal(handle):
-    """
-    Descarga la página pública del canal y busca referencias
-    al Channel ID.
+def get_releases(info):
+    releases = []
 
-    Probamos YouTube Music y YouTube normal.
-    """
-
-    urls = [
-        f"https://music.youtube.com/@{handle}",
-        f"https://www.youtube.com/@{handle}",
+    possible_keys = [
+        "albums",
+        "singles",
+        "songs",
+        "featuredOn",
     ]
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 "
-            "(Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/131.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+    for key in possible_keys:
+        data = info.get(key)
 
-    for url in urls:
+        if not data:
+            continue
 
-        print(f"Consultando: {url}")
+        if isinstance(data, dict):
+            data = data.get("results", [])
 
-        try:
+        if not isinstance(data, list):
+            continue
 
-            respuesta = requests.get(
-                url,
-                headers=headers,
-                timeout=20,
-                allow_redirects=True,
-            )
-
-            print(f"HTTP: {respuesta.status_code}")
-            print(f"URL final: {respuesta.url}")
-
-            if respuesta.status_code != 200:
+        for item in data:
+            if not isinstance(item, dict):
                 continue
 
-            return respuesta.text
+            title = (
+                item.get("title")
+                or item.get("name")
+            )
 
-        except Exception as error:
+            if title and title not in releases:
+                releases.append(title)
 
-            print(f"Error: {error}")
-
-    return None
-
-
-def extraer_channel_ids(texto):
-    """
-    Busca todos los Channel IDs que aparezcan en el HTML.
-    """
-
-    if not texto:
-        return []
-
-    patrones = [
-        r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
-        r'"externalId":"(UC[a-zA-Z0-9_-]{22})"',
-        r'channelId\\":\\"(UC[a-zA-Z0-9_-]{22})',
-        r'channelId%22%3A%22(UC[a-zA-Z0-9_-]{22})',
-    ]
-
-    encontrados = []
-
-    for patron in patrones:
-
-        matches = re.findall(patron, texto)
-
-        for channel_id in matches:
-
-            if channel_id not in encontrados:
-                encontrados.append(channel_id)
-
-    return encontrados
+    return releases[:8]
 
 
-def comprobar_channel_id(
-    nombre_esperado,
-    channel_id,
-    fuente,
-):
-    """
-    Comprueba un Channel ID mediante ytmusicapi.
-    """
-
-    print()
-    print(f"Comprobando ID: {channel_id}")
-    print(f"Fuente: {fuente}")
-
+def check_candidate(expected, candidate_id):
     try:
+        info = ytmusic.get_artist(candidate_id)
 
-        datos = ytmusic.get_artist(channel_id)
-
-        nombre_youtube = datos.get("name")
-        seguidores = datos.get("subscribers")
-
-        print(f"Nombre devuelto: {nombre_youtube}")
-        print(f"Seguidores: {seguidores}")
-
-        compatible = nombres_compatibles(
-            nombre_esperado,
-            nombre_youtube
+        returned_name = (
+            info.get("name")
+            or info.get("artist")
+            or info.get("title")
         )
 
-        if compatible:
+        subscribers = get_subscribers(info)
+        description = get_description(info)
+        releases = get_releases(info)
 
-            print("RESULTADO: OK")
-
-            return {
-                "channel_id": channel_id,
-                "youtube_name": nombre_youtube,
-                "subscribers": seguidores,
-                "status": "OK",
-            }
-
-        print("RESULTADO: REVISAR")
-        print(
-            f"El nombre esperado es '{nombre_esperado}', "
-            f"pero YouTube Music devuelve '{nombre_youtube}'."
-        )
+        ok = compatible(expected, returned_name)
 
         return {
-            "channel_id": channel_id,
-            "youtube_name": nombre_youtube,
-            "subscribers": seguidores,
-            "status": "REVISAR",
+            "id": candidate_id,
+            "name": returned_name,
+            "subscribers": subscribers,
+            "description": description,
+            "releases": releases,
+            "status": "OK" if ok else "RECHAZAR",
         }
 
-    except Exception as error:
-
-        print(f"ERROR YTMUSICAPI: {error}")
-
+    except Exception as e:
         return {
-            "channel_id": channel_id,
-            "youtube_name": None,
-            "subscribers": None,
+            "id": candidate_id,
+            "name": None,
+            "subscribers": "?",
+            "description": "",
+            "releases": [],
             "status": "ERROR",
+            "error": str(e)[:180],
         }
 
 
-def verificar_artista(nombre, url):
-
+def main():
+    print("=" * 70)
+    print("VALIDACIÓN DIRECTA DE IDs — CUBATON MUSIC")
+    print("=" * 70)
     print()
-    print("=" * 90)
-    print(f"ARTISTA: {nombre}")
-    print(f"URL:     {url}")
-    print("=" * 90)
+    print("Artistas incluidos:", len(ARTISTS))
+    print("Solo se utilizan los 37 artistas definidos.")
+    print()
 
-    # ---------------------------------------------------------
-    # CASO 1
-    # La URL ya tiene Channel ID.
-    # ---------------------------------------------------------
+    total_ok = 0
+    total_rejected = 0
+    total_errors = 0
+    total_no_candidates = 0
 
-    channel_id = obtener_channel_id_desde_channel_url(url)
+    confirmed = {}
 
-    if channel_id:
+    for number, artist in enumerate(ARTISTS, start=1):
 
         print()
-        print("La URL contiene directamente un Channel ID.")
+        print("-" * 70)
+        print(f"[{number}/{len(ARTISTS)}] {artist}")
+        print("-" * 70)
 
-        resultado = comprobar_channel_id(
-            nombre,
-            channel_id,
-            "URL /channel/"
-        )
+        candidates = CANDIDATES.get(artist, [])
 
-        return resultado
+        if not candidates:
+            print("SIN CANDIDATOS")
+            total_no_candidates += 1
+            continue
 
+        valid_for_artist = []
 
-    # ---------------------------------------------------------
-    # CASO 2
-    # La URL utiliza @handle.
-    # ---------------------------------------------------------
+        for candidate_id in candidates:
 
-    handle = obtener_handle(url)
+            print()
+            print("ID candidato:", candidate_id)
 
-    if not handle:
+            result = check_candidate(artist, candidate_id)
 
-        print("No se pudo extraer el handle.")
+            print("Nombre YouTube Music:", result["name"])
+            print("Seguidores:", result["subscribers"])
 
-        return {
-            "channel_id": None,
-            "youtube_name": None,
-            "subscribers": None,
-            "status": "NO_ENCONTRADO",
-        }
+            if result["description"]:
+                print("Descripción:", result["description"])
 
+            if result["releases"]:
+                print("Lanzamientos:")
+                for release in result["releases"]:
+                    print("  -", release)
 
-    print()
-    print(f"Handle: @{handle}")
+            print("RESULTADO:", result["status"])
 
-    texto = obtener_html_canal(handle)
+            if result["status"] == "OK":
+                valid_for_artist.append(result)
+                total_ok += 1
 
-    if not texto:
+            elif result["status"] == "RECHAZAR":
+                total_rejected += 1
 
-        print("No se pudo descargar la página.")
+            else:
+                total_errors += 1
 
-        return {
-            "channel_id": None,
-            "youtube_name": None,
-            "subscribers": None,
-            "status": "NO_ENCONTRADO",
-        }
+            time.sleep(0.8)
 
-
-    channel_ids = extraer_channel_ids(texto)
-
-    print()
-    print(f"Channel IDs encontrados: {len(channel_ids)}")
-
-    if not channel_ids:
-
-        print("No se encontró ningún Channel ID.")
-
-        return {
-            "channel_id": None,
-            "youtube_name": None,
-            "subscribers": None,
-            "status": "NO_ENCONTRADO",
-        }
-
-
-    # ---------------------------------------------------------
-    # Comprobamos cada ID.
-    # NUNCA elegimos simplemente el primero.
-    # ---------------------------------------------------------
-
-    resultados = []
-
-    for candidato in channel_ids:
-
-        resultado = comprobar_channel_id(
-            nombre,
-            candidato,
-            f"@{handle}"
-        )
-
-        resultados.append(resultado)
-
-
-    # ---------------------------------------------------------
-    # Buscar coincidencia exacta.
-    # ---------------------------------------------------------
-
-    validos = [
-        resultado
-        for resultado in resultados
-        if resultado["status"] == "OK"
-    ]
-
-
-    if len(validos) == 1:
-
-        print()
-        print("CANAL VALIDADO CORRECTAMENTE.")
-
-        return validos[0]
-
-
-    if len(validos) > 1:
-
-        print()
-        print("HAY VARIOS CANDIDATOS VÁLIDOS.")
-        print("ESTADO: REVISAR")
-
-        return {
-            "channel_id": None,
-            "youtube_name": None,
-            "subscribers": None,
-            "status": "REVISAR",
-        }
-
+        if valid_for_artist:
+            confirmed[artist] = valid_for_artist
 
     print()
-    print("No se encontró coincidencia segura.")
+    print()
+    print("=" * 70)
+    print("RESUMEN FINAL")
+    print("=" * 70)
 
-    # Mostramos el primer candidato únicamente como
-    # información, pero NO lo consideramos válido.
+    print("Artistas de la lista:", len(ARTISTS))
+    print("Candidatos OK:", total_ok)
+    print("Candidatos rechazados:", total_rejected)
+    print("Errores:", total_errors)
+    print("Artistas sin candidatos:", total_no_candidates)
 
-    if resultados:
+    print()
+    print("=" * 70)
+    print("CANDIDATOS VÁLIDOS POR ARTISTA")
+    print("=" * 70)
 
-        primero = resultados[0]
+    for artist in ARTISTS:
 
-        return {
-            "channel_id": primero.get("channel_id"),
-            "youtube_name": primero.get("youtube_name"),
-            "subscribers": primero.get("subscribers"),
-            "status": "REVISAR",
-        }
+        valid = confirmed.get(artist, [])
 
-    return {
-        "channel_id": None,
-        "youtube_name": None,
-        "subscribers": None,
-        "status": "NO_ENCONTRADO",
-    }
-
-
-print()
-print("=" * 90)
-print("PASO 17")
-print("VERIFICACIÓN ESTRICTA DE LOS 37 ARTISTAS")
-print("=" * 90)
-
-print()
-print(f"Total de artistas: {len(ARTISTS)}")
-
-resultados_finales = []
-
-
-for nombre, url in ARTISTS.items():
-
-    try:
-
-        resultado = verificar_artista(
-            nombre,
-            url
-        )
-
-        resultados_finales.append({
-            "artist": nombre,
-            "url": url,
-            **resultado,
-        })
-
-    except Exception as error:
+        if not valid:
+            print(f"{artist} -> SIN CANDIDATO CONFIRMADO")
+            continue
 
         print()
-        print("=" * 90)
-        print(f"ERROR GENERAL: {nombre}")
-        print(f"Detalle: {error}")
-        print("=" * 90)
+        print(f"{artist}:")
 
-        resultados_finales.append({
-            "artist": nombre,
-            "url": url,
-            "channel_id": None,
-            "youtube_name": None,
-            "subscribers": None,
-            "status": "ERROR",
-        })
+        for item in valid:
+            print(
+                f"  {item['id']} -> "
+                f"{item['name']} | "
+                f"Seguidores: {item['subscribers']}"
+            )
 
-
-print()
-print()
-print("=" * 90)
-print("RESUMEN FINAL")
-print("=" * 90)
-
-for resultado in resultados_finales:
-
-    print(
-        f"{resultado['artist']} "
-        f"-> "
-        f"{resultado.get('youtube_name')} "
-        f"-> "
-        f"{resultado.get('channel_id')} "
-        f"-> "
-        f"{resultado.get('status')}"
-    )
+    print()
+    print("=" * 70)
+    print("FIN DE LA VALIDACIÓN")
+    print("=" * 70)
 
 
-print()
-print("=" * 90)
-print("TOTALES")
-print("=" * 90)
-
-ok = sum(
-    1
-    for r in resultados_finales
-    if r["status"] == "OK"
-)
-
-revisar = sum(
-    1
-    for r in resultados_finales
-    if r["status"] == "REVISAR"
-)
-
-no_encontrado = sum(
-    1
-    for r in resultados_finales
-    if r["status"] == "NO_ENCONTRADO"
-)
-
-errores = sum(
-    1
-    for r in resultados_finales
-    if r["status"] == "ERROR"
-)
-
-print(f"OK:             {ok}")
-print(f"REVISAR:        {revisar}")
-print(f"NO ENCONTRADO:  {no_encontrado}")
-print(f"ERROR:          {errores}")
-
-print()
-print("=" * 90)
-print("PASO 17 TERMINADO")
-print("=" * 90)
+if __name__ == "__main__":
+    main()
