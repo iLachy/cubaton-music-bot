@@ -1,25 +1,26 @@
-name: Paso 17 - Verificacion estricta de artistas
+name: Validar artistas YouTube Music
 
 on:
   workflow_dispatch:
 
 jobs:
-  verificar-artistas:
+  validar:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar codigo
+      - name: Descargar repositorio
         uses: actions/checkout@v4
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.11"
 
       - name: Instalar dependencias
         run: |
-          pip install --upgrade ytmusicapi requests
+          python -m pip install --upgrade pip
+          pip install ytmusicapi
 
-      - name: Ejecutar verificacion
+      - name: Ejecutar validación
         run: |
           python bot.py
