@@ -1,10 +1,10 @@
-name: Paso 15 - Verificar canales de YouTube Music
+name: Paso 16 - Resolver canales directamente
 
 on:
   workflow_dispatch:
 
 jobs:
-  verificar-canales:
+  resolver-canales:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,10 +16,10 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Instalar ytmusicapi
+      - name: Instalar dependencias
         run: |
-          pip install --upgrade ytmusicapi
+          pip install --upgrade ytmusicapi requests
 
-      - name: Verificar los 38 artistas
+      - name: Resolver canales
         run: |
           python bot.py
