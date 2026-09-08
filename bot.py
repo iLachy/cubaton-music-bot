@@ -1,12 +1,14 @@
 import os
 import json
 import html
+import io
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
 
 import requests
 from ytmusicapi import YTMusic
 import yt_dlp
+from PIL import Image
 
 
 # ============================================================
@@ -34,14 +36,49 @@ def escapar(texto):
     return html.escape(str(texto))
 
 
+def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
+    """
+    Descarga la miniatura, la recorta a formato cuadrado (1:1) 
+    eliminando los espacios vacíos laterales y la guarda localmente.
+    """
+    if os.path.exists(archivo_salida):
+        try:
+            os.remove(archivo_salida)
+        except Exception:
+            pass
+
+    try:
+        resp = requests.get(url_imagen, timeout=20)
+        if not resp.ok:
+            return None
+        
+        img = Image.open(io.BytesIO(resp.content))
+        ancho, alto = img.size
+
+        # Si la imagen es más ancha que alta, recortamos los laterales simétricamente
+        if ancho > alto:
+            diferencia = ancho - alto
+            inicio_x = diferencia // 2
+            fin_x = inicio_x + alto
+            img = img.crop((inicio_x, 0, fin_x, alto))
+
+        img.save(archivo_salida, "JPEG")
+        if os.path.exists(archivo_salida):
+            return archivo_salida
+        return None
+    except Exception as error:
+        print(f"Error procesando miniatura: {error}")
+        return None
+
+
 # ============================================================
-# DESCARGA DE AUDIO (CON SOPORTE DE COOKIES)
+# DESCARGA DE AUDIO (CON SOPORTE DE COOKIES Y BYPASS)
 # ============================================================
 
 def descargar_audio(youtube_url):
     """
     Descarga el audio de YouTube Music en formato MP3 
-    utilizando yt-dlp y cookies locales si existen.
+    utilizando yt-dlp, cookies y cliente android/web para evitar bloqueos.
     """
     archivo_salida = "temp_track.mp3"
 
@@ -61,6 +98,11 @@ def descargar_audio(youtube_url):
         'outtmpl': 'temp_track',
         'quiet': True,
         'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        },
     }
 
     if os.path.exists("cookies.txt"):
@@ -127,7 +169,7 @@ def enviar_alerta_error(
 def publicar_cancion(cancion):
     """
     Publica la canción en dos mensajes secuenciales limpios:
-    1. Mensaje con la foto de la portada, metadatos y botón inline.
+    1. Mensaje con la foto de portada recortada (cuadrada), metadatos y botón inline.
     2. Mensaje independiente con el archivo de audio (.mp3) y etiqueta 🎧 @Cubaton_Music.
     """
     titulo = escapar(cancion["titulo"])
@@ -157,32 +199,47 @@ def publicar_cancion(cancion):
     thumbnails = cancion.get("thumbnails", [])
     foto_url = thumbnails[-1]["url"] if thumbnails else None
 
-    # 1. Enviar Mensaje 1: Foto con metadatos y botón inline
-    if foto_url:
-        payload_foto = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "photo": foto_url,
-            "caption": caption_foto,
-            "parse_mode": "HTML",
-            "reply_markup": json.dumps(reply_markup),
-        }
+    if not foto_url:
+        return False, "No se encontró miniatura disponible para la foto."
 
-        try:
+    # Procesar y recortar la miniatura localmente para evitar espacios vacíos
+    print(f"Procesando y recortando miniatura para: {cancion['titulo']}...")
+    archivo_foto_local = preparar_miniatura(foto_url)
+
+    if not archivo_foto_local or not os.path.exists(archivo_foto_local):
+        return False, "Fallo al procesar/recortar la miniatura de la foto."
+
+    # 1. Enviar Mensaje 1: Foto recortada con metadatos y botón inline
+    try:
+        with open(archivo_foto_local, "rb") as foto_file:
+            files = {"photo": foto_file}
+            data = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "caption": caption_foto,
+                "parse_mode": "HTML",
+                "reply_markup": json.dumps(reply_markup),
+            }
+
             resp_foto = requests.post(
                 f"{TELEGRAM_API}/sendPhoto",
-                json=payload_foto,
-                timeout=30
+                files=files,
+                data=data,
+                timeout=45
             )
-            if not resp_foto.ok:
-                return False, f"Fallo al enviar la foto: {resp_foto.text}"
-            
-            datos_foto = resp_foto.json()
-            if not datos_foto.get("ok"):
-                return False, f"Fallo al enviar la foto: {str(datos_foto)}"
-        except Exception as error:
-            return False, f"Excepción al enviar la foto: {str(error)}"
-    else:
-        return False, "No se encontró miniatura disponible para la foto."
+
+        if os.path.exists(archivo_foto_local):
+            os.remove(archivo_foto_local)
+
+        if not resp_foto.ok:
+            return False, f"Fallo al enviar la foto: {resp_foto.text}"
+        
+        datos_foto = resp_foto.json()
+        if not datos_foto.get("ok"):
+            return False, f"Fallo al enviar la foto: {str(datos_foto)}"
+    except Exception as error:
+        if os.path.exists(archivo_foto_local):
+            os.remove(archivo_foto_local)
+        return False, f"Excepción al enviar la foto: {str(error)}"
 
     # 2. Descargar audio temporalmente para el Mensaje 2
     print(f"Descargando audio para: {cancion['titulo']}...")
@@ -191,7 +248,7 @@ def publicar_cancion(cancion):
     if not archivo_audio or not os.path.exists(archivo_audio):
         return False, "Fallo al descargar el archivo de audio con yt-dlp."
 
-    # 3. Enviar Mensaje 2: Audio independiente (sin reply) con emoji y formato requerido
+    # 3. Enviar Mensaje 2: Audio independiente con etiqueta requerida
     caption_audio = "🎧 @Cubaton_Music"
 
     try:
@@ -258,15 +315,43 @@ def main():
             if not video_id:
                 video_id = url.split("v=")[1].split("&")[0]
 
-            print(f"Obteniendo metadatos para video_id: {video_id}...")
-            track_info = ytmusic.get_song(video_id)
-            detalles = track_info.get("videoDetails", {})
+            print(f"Obteniendo metadatos reales para video_id: {video_id}...")
             
-            titulo = detalles.get("title", "Canción de Prueba")
-            autor = detalles.get("author", "Artista de Prueba")
+            # Obtener datos enriquecidos de la pista (artistas limpios, álbum)
+            watch_info = ytmusic.get_watch_playlist(videoId=video_id)
+            song_info = ytmusic.get_song(video_id)
             
-            # Intenta obtener miniaturas de la API; si no hay, usa la URL oficial de YouTube como respaldo
-            thumbnails = detalles.get("thumbnail", {}).get("thumbnails", [])
+            # Extraer metadatos
+            track_data = watch_info["tracks"][0] if watch_info.get("tracks") else {}
+            video_details = song_info.get("videoDetails", {})
+            
+            # Título
+            titulo = track_data.get("title") or video_details.get("title", "Canción Desconocida")
+            
+            # Artistas (extraídos limpiamente)
+            artistas_raw = track_data.get("artists", [])
+            if artistas_raw:
+                autor = ", ".join([a["name"] for a in artistas_raw if "name" in a and a["name"] != "Topic"])
+            else:
+                autor = video_details.get("author", "Artista Desconocido").replace(" - Topic", "")
+            
+            # Álbum / Single
+            album_info = track_data.get("album")
+            nombre_publicacion = album_info.get("name") if album_info else "Single"
+            
+            # Año de publicación
+            anio = datetime.now().year
+            try:
+                publish_date = song_info.get("microformat", {}).get("microformatDataRenderer", {}).get("publishDate", "")
+                if publish_date:
+                    anio = publish_date.split("-")[0]
+            except Exception:
+                pass
+            
+            # Miniatura (la de mejor calidad disponible)
+            thumbnails = track_data.get("thumbnail", [])
+            if not thumbnails:
+                thumbnails = video_details.get("thumbnail", {}).get("thumbnails", [])
             if not thumbnails:
                 thumbnails = [{"url": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"}]
 
@@ -275,9 +360,9 @@ def main():
                 "video_id": video_id,
                 "titulo": titulo,
                 "artistas": autor,
-                "tipo": "Single",
-                "anio": "2026",
-                "nombre_publicacion": "Single",
+                "tipo": "Lanzamiento",
+                "anio": str(anio),
+                "nombre_publicacion": nombre_publicacion,
                 "youtube_url": url,
                 "thumbnails": thumbnails,
             }
@@ -298,6 +383,8 @@ def main():
         print(f"[PRUEBA {numero}/{len(nuevas_canciones)}]")
         print(f"Artista(s): {cancion['artistas']}")
         print(f"Canción: {cancion['titulo']}")
+        print(f"Álbum/Lanzamiento: {cancion['nombre_publicacion']}")
+        print(f"Año: {cancion['anio']}")
 
         exito, error = publicar_cancion(cancion)
 
