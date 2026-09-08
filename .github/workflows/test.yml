@@ -31,7 +31,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Instalación de FFmpeg para procesar el audio MP3
       - name: Instalar FFmpeg
         run: |
           sudo apt-get update
@@ -40,8 +39,8 @@ jobs:
       - name: Instalar dependencias
         run: |
           pip install -r requirements.txt
+          pip install yt-dlp ytmusicapi requests Pillow --upgrade
 
-      # Inyección segura de las cookies de YouTube desde los secretos de GitHub
       - name: Crear archivo de cookies
         shell: bash
         run: |
