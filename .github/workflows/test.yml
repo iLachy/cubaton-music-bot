@@ -41,11 +41,16 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      # Inyección de las cookies de YouTube desde los secretos de GitHub
+      # Inyección segura de las cookies de YouTube desde los secretos de GitHub
       - name: Crear archivo de cookies
-        if: ${{ secrets.YOUTUBE_COOKIES != '' }}
+        shell: bash
         run: |
-          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+          if [ -n "${{ secrets.YOUTUBE_COOKIES }}" ]; then
+            echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+            echo "cookies.txt creado correctamente."
+          else
+            echo "No se configuró YOUTUBE_COOKIES. Continuando sin cookies..."
+          fi
 
       - name: Ejecutar Cubaton Music Bot
         env:
