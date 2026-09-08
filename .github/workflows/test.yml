@@ -1,3 +1,4 @@
+```yaml
 name: Cubaton Music Bot
 
 on:
@@ -6,9 +7,13 @@ on:
 
   workflow_dispatch:
 
+# Permite a GitHub Actions guardar
+# state/releases.json en el repositorio.
 permissions:
   contents: write
 
+# Evita que dos ejecuciones trabajen
+# simultáneamente.
 concurrency:
   group: cubaton-music-bot
   cancel-in-progress: false
@@ -21,35 +26,35 @@ jobs:
 
     steps:
 
+      # ------------------------------------------------------
+      # Descargar repositorio
+      # ------------------------------------------------------
+
       - name: Descargar repositorio
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # ------------------------------------------------------
+      # Configurar Python
+      # ------------------------------------------------------
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Instalar FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+      # ------------------------------------------------------
+      # Instalar dependencias
+      # ------------------------------------------------------
 
       - name: Instalar dependencias
         run: |
           pip install -r requirements.txt
-          pip install yt-dlp ytmusicapi requests Pillow --upgrade
 
-      - name: Crear archivo de cookies
-        shell: bash
-        run: |
-          if [ -n "${{ secrets.YOUTUBE_COOKIES }}" ]; then
-            echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
-            echo "cookies.txt creado correctamente."
-          else
-            echo "No se configuró YOUTUBE_COOKIES. Continuando sin cookies..."
-          fi
+      # ------------------------------------------------------
+      # Ejecutar bot
+      # ------------------------------------------------------
 
       - name: Ejecutar Cubaton Music Bot
         env:
@@ -57,14 +62,28 @@ jobs:
         run: |
           python bot.py
 
+      # ------------------------------------------------------
+      # Guardar estado
+      # ------------------------------------------------------
+
       - name: Guardar estado de lanzamientos
         run: |
+
           git config user.name "github-actions[bot]"
+
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add state/releases.json
+
           if git diff --cached --quiet; then
+
             echo "No hay cambios en el estado."
+
           else
+
             git commit -m "Actualizar estado de lanzamientos"
+
             git push
+
           fi
+```
