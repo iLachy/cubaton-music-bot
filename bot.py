@@ -91,7 +91,7 @@ def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
 def descargar_audio(video_id):
     """
     Descarga el audio en formato MP3 utilizando yt-dlp 
-    con extracción limpia para evitar errores de formato no disponible.
+    con extractor_args para evitar el bloqueo 'The page needs to be reloaded'.
     """
     archivo_salida = "temp_track.mp3"
     url_descarga = f"https://www.youtube.com/watch?v={video_id}"
@@ -105,6 +105,7 @@ def descargar_audio(video_id):
     ydl_opts = {
         'format': 'bestaudio/best',
         'format_sort': ['aext:mp3', 'hasaudio'],
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -175,7 +176,7 @@ def enviar_alerta_error(cancion, etapa, detalle):
 def publicar_cancion(cancion):
     """
     Publica la canción en dos mensajes secuenciales limpios:
-    1. Mensaje con la foto de portada recortada (cuadrada), título y emoji en bloque 'citar', metadatos y botón inline.
+    1. Mensaje con la foto de portada recortada (cuadrada), título y emoji en bloque 'citar', metadatos (sin 'Tipo:') y botón inline.
     2. Mensaje independiente con el archivo de audio (.mp3) y etiqueta 🎧 @Cubaton_Music.
     """
     titulo = escapar(cancion["titulo"])
@@ -186,7 +187,7 @@ def publicar_cancion(cancion):
     caption_foto = (
         f"🎤 <b>{artistas}</b>\n"
         f"<blockquote>🎵 {titulo}</blockquote>\n"
-        f"📀 <b>Tipo: {nombre_publicacion}</b>\n"
+        f"📀 <b>{nombre_publicacion}</b>\n"
         f"🗓 {anio}\n\n"
         "@Cubaton_Music"
     )
