@@ -85,13 +85,13 @@ def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
 
 
 # ============================================================
-# DESCARGA DE AUDIO (BYPASS CON CLIENTES MÓVILES)
+# DESCARGA DE AUDIO
 # ============================================================
 
 def descargar_audio(video_id):
     """
-    Descarga el audio en formato MP3 utilizando yt-dlp.
-    Utiliza clientes móviles (android, ios) para evitar el error 'The page needs to be reloaded'.
+    Descarga el audio en formato MP3 utilizando yt-dlp 
+    con extracción limpia para evitar errores de formato no disponible.
     """
     archivo_salida = "temp_track.mp3"
     url_descarga = f"https://www.youtube.com/watch?v={video_id}"
@@ -102,46 +102,33 @@ def descargar_audio(video_id):
         except Exception:
             pass
 
-    # Combinaciones de clientes a probar para evitar bloqueos
-    estrategias_clientes = [
-        ['android', 'ios'],
-        ['ios'],
-        ['android_vr'],
-    ]
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'format_sort': ['aext:mp3', 'hasaudio'],
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'outtmpl': 'temp_track',
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+    }
 
-    for clientes in estrategias_clientes:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': 'temp_track',
-            'quiet': True,
-            'no_warnings': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': clientes
-                }
-            },
-        }
+    if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
+        ydl_opts['cookiefile'] = "cookies.txt"
 
-        # Incluir cookies solo si el archivo existe y tiene contenido
-        if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
-            ydl_opts['cookiefile'] = "cookies.txt"
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url_descarga])
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url_descarga])
-
-            if os.path.exists(archivo_salida):
-                return archivo_salida
-        except Exception as error:
-            print(f"Intento con cliente {clientes} falló: {error}")
-            continue
-
-    return None
+        if os.path.exists(archivo_salida):
+            return archivo_salida
+        return None
+    except Exception as error:
+        print(f"Error descargando audio con yt-dlp: {error}")
+        return None
 
 
 # ============================================================
@@ -160,7 +147,7 @@ def enviar_alerta_error(cancion, etapa, detalle):
         mensaje = (
             "⚠️ <b>Error en Cubaton Music Bot (Prueba)</b>\n\n"
             f"🎤 <b>Artista(s):</b> {artistas}\n"
-            f"🎵 <b>Canción:</b> {titulo}\n"
+            f"🎵 <b>Canción:</b> <blockquote>🎵 {titulo}</blockquote>\n"
             f"📀 <b>Lanzamiento:</b> {nombre_publicacion}\n"
             f"🗓 <b>Año:</b> {anio}\n"
             f"🔧 <b>Etapa:</b> {escapar(etapa)}\n"
@@ -188,7 +175,7 @@ def enviar_alerta_error(cancion, etapa, detalle):
 def publicar_cancion(cancion):
     """
     Publica la canción en dos mensajes secuenciales limpios:
-    1. Mensaje con la foto de portada recortada (cuadrada), metadatos y botón inline.
+    1. Mensaje con la foto de portada recortada (cuadrada), título y emoji en bloque 'citar', metadatos y botón inline.
     2. Mensaje independiente con el archivo de audio (.mp3) y etiqueta 🎧 @Cubaton_Music.
     """
     titulo = escapar(cancion["titulo"])
@@ -198,8 +185,8 @@ def publicar_cancion(cancion):
 
     caption_foto = (
         f"🎤 <b>{artistas}</b>\n"
-        f"🎵 <b>{titulo}</b>\n"
-        f"📀 <b>{nombre_publicacion}</b>\n"
+        f"<blockquote>🎵 {titulo}</blockquote>\n"
+        f"📀 <b>Tipo: {nombre_publicacion}</b>\n"
         f"🗓 {anio}\n\n"
         "@Cubaton_Music"
     )
