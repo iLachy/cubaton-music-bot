@@ -1,6 +1,7 @@
 import os
 import json
 import html
+import unicodedata
 from datetime import datetime, timezone
 
 import requests
@@ -188,6 +189,24 @@ def normalizar_nombre(nombre):
     return " ".join(
         str(nombre).strip().split()
     ).casefold()
+
+
+def normalizar_titulo_album(titulo):
+    """Normaliza un título para detectar álbumes equivalentes."""
+    texto = " ".join(
+        str(titulo or "").strip().split()
+    ).casefold()
+
+    texto = unicodedata.normalize(
+        "NFKD",
+        texto
+    )
+
+    return "".join(
+        caracter
+        for caracter in texto
+        if not unicodedata.combining(caracter)
+    )
 
 
 # ============================================================
@@ -699,6 +718,13 @@ def obtener_lanzamientos_artista(
         )
     )
 
+    # Algunas respuestas de YouTube Music pueden contener
+    # el mismo lanzamiento más de una vez con diferencias
+    # menores de capitalización o acentuación en el título.
+    # Se evita llamar a get_album() más de una vez para esos
+    # lanzamientos equivalentes.
+    albumes_procesados = set()
+
     for album in resultados_albums:
 
         browse_id = album.get(
@@ -716,6 +742,33 @@ def obtener_lanzamientos_artista(
         tipo_album = album.get(
             "type",
             "Album"
+        )
+
+        clave_album = (
+            normalizar_titulo_album(
+                titulo_album
+            ),
+            normalizar_nombre(
+                tipo_album
+            ),
+            str(
+                album.get(
+                    "year",
+                    ""
+                )
+                or ""
+            ).strip()
+        )
+
+        if clave_album in albumes_procesados:
+            print(
+                f"Álbum equivalente omitido: "
+                f"{titulo_album}"
+            )
+            continue
+
+        albumes_procesados.add(
+            clave_album
         )
 
         tipo_normalizado = str(
@@ -1005,7 +1058,7 @@ def publicar_cancion(
 
     caption = (
         f"🎤 <b>{artistas}</b>\n"
-        f"🎵 <b>{titulo}</b>\n"
+        f"<blockquote>🎵 <b>{titulo}</b></blockquote>\n"
         f"📀 <b>{nombre_publicacion}</b>\n"
         f"🗓 {anio}\n"
         f"\n"
