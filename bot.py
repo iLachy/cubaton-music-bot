@@ -28,7 +28,7 @@ TELEGRAM_API = (
 
 
 # ============================================================
-# UTILIDADES Y FILTRADO
+# UTILIDADES Y FILTRADO INTELIGENTE
 # ============================================================
 
 def escapar(texto):
@@ -52,40 +52,49 @@ def verificar_ffmpeg():
 
 def limpiar_titulo_y_artistas(titulo_raw, artistas_raw):
     """
-    Limpia el título removiendo añadidos como '(Prod. by ...)', 
-    y limpia los artistas para evitar nombres largos de compositores/legales.
+    Limpia el título de metadatos y filtra los nombres reales/legales 
+    de los artistas conservando todos los nombres artísticos sin importar la cantidad.
     """
-    # Limpiar título de productoras o versiones entre paréntesis/corchetes si se desea conservar solo lo principal
-    # (Ej: "Hay Negri (Prod. by Dj Honda)" -> "Hay Negri")
+    # 1. Limpieza de título
     titulo_limpio = re.sub(r'\s*[\(\[].*?(prod\.|remix|official|video).*?[\)\]]', '', titulo_raw, flags=re.IGNORECASE).strip()
     if not titulo_limpio:
         titulo_limpio = titulo_raw
 
-    # Si vienen muchos artistas (nombres reales separados por 'and', comas, etc.), 
-    # nos quedamos con los principales o limpiamos nombres excesivamente largos o compuestos.
+    # 2. Procesar lista de artistas
     if isinstance(artistas_raw, list):
         lista_artistas = [a.get("name", "") for a in artistas_raw if isinstance(a, dict) and a.get("name") != "Topic"]
     elif isinstance(artistas_raw, str):
-        # Separar por comas o 'and'
         partes = re.split(r',\s*|\s+and\s+', artistas_raw)
         lista_artistas = [p.strip() for p in partes if p.strip() and p.strip().lower() != "topic"]
     else:
         lista_artistas = [str(artistas_raw)]
 
-    # Filtrar nombres reales muy largos o descriptivos si hay más de 3 artistas o si superan una longitud típica de nombre artístico
+    # Palabras clave comunes en nombres artísticos, apodos o marcas musicales
+    palabras_artisticas = {
+        "dj", "mc", "el", "la", "los", "las", "global", "music", "prod", 
+        "beat", "boy", "gang", "team", "duo", "trio", "ya", "kid", "lil", 
+        "big", "y", "ft", "feat", "suarez", "ice"
+    }
+
     artistas_filtrados = []
     for artista in lista_artistas:
-        # Si el nombre tiene más de 3 palabras y contiene varias mayúsculas (nombre legal completo), 
-        # a menudo YouTube Music los agrupa. Intentamos conservar los nombres artísticos limpios.
-        if len(artista.split()) > 4 and "," in artista:
-            continue
-        artistas_filtrados.append(artista)
+        palabras = artista.split()
+        es_nombre_real = False
+        
+        # Heurística: Si tiene 3 o más palabras, no contiene términos artísticos 
+        # y tiene estructura de nombre civil completo (Nombre + Apellidos), se descarta.
+        contiene_marca = any(p.lower() in palabras_artisticas for p in palabras)
+        if len(palabras) >= 3 and not contiene_marca:
+            if all(p[0].isupper() for p in palabras if p):
+                es_nombre_real = True
+
+        if not es_nombre_real:
+            artistas_filtrados.append(artista)
 
     if not artistas_filtrados:
-        artistas_filtrados = lista_artistas[:3] # Tomar los primeros si acaso
+        artistas_filtrados = lista_artistas[:1]
 
-    # Unir limpiamente
-    artistas_limpios = ", ".join(artistas_filtrados[:3]) # Máximo 3 principales para mantener estética
+    artistas_limpios = ", ".join(artistas_filtrados)
     return titulo_limpio, artistas_limpios
 
 
@@ -130,7 +139,7 @@ def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
 def descargar_audio(video_id):
     """
     Descarga el audio en formato MP3 utilizando yt-dlp 
-    con configuración optimizada y sin argumentos obsoletos.
+    con el cliente iOS/Web para evitar bloqueos de formato.
     """
     archivo_salida = "temp_track.mp3"
     url_descarga = f"https://www.youtube.com/watch?v={video_id}"
@@ -142,8 +151,8 @@ def descargar_audio(video_id):
             pass
 
     ydl_opts = {
-        'format': 'bestaudio',
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'format': 'bestaudio/best',
+        'extractor_args': {'youtube': {'player_client': ['ios', 'web']}},
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -214,7 +223,7 @@ def enviar_alerta_error(cancion, etapa, detalle):
 def publicar_cancion(cancion):
     """
     Publica la canción en dos mensajes secuenciales limpios:
-    1. Mensaje con la foto de portada recortada (cuadrada), título limpio en bloque 'citar', metadatos y botón inline.
+    1. Mensaje con la foto de portada recortada, título en bloque de cita con emoji 🎵, metadatos limpios y botón inline.
     2. Mensaje independiente con el archivo de audio (.mp3) y etiqueta 🎧 @Cubaton_Music.
     """
     titulo = escapar(cancion["titulo"])
@@ -377,14 +386,13 @@ def main():
             if not artistas_crudos:
                 artistas_crudos = video_details.get("author", "Artista Desconocido").replace(" - Topic", "")
 
-            # Aplicar limpieza de nombres y títulos
+            # Aplicar limpieza inteligente de título y eliminación de nombres reales de artistas
             titulo, autor = limpiar_titulo_y_artistas(titulo_crudo, artistas_crudos)
 
             # Evaluar álbum / lanzamiento
             album_info = track_data.get("album")
             nombre_album_raw = album_info.get("name") if album_info else None
             
-            # Si no pertenece a un álbum o el nombre del álbum coincide exactamente con el título de la canción, poner "Single"
             if not nombre_album_raw or nombre_album_raw.strip().lower() == titulo.strip().lower():
                 nombre_publicacion = "Single"
             else:
