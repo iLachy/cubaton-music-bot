@@ -2,6 +2,7 @@ import os
 import json
 import html
 import io
+import subprocess
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
 
@@ -26,7 +27,7 @@ TELEGRAM_API = (
 
 
 # ============================================================
-# UTILIDADES
+# UTILIDADES Y VERIFICACIONES
 # ============================================================
 
 def escapar(texto):
@@ -35,6 +36,18 @@ def escapar(texto):
         return ""
     return html.escape(str(texto))
 
+def verificar_ffmpeg():
+    """Comprueba si FFmpeg está instalado y accesible en el sistema."""
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            check=True
+        )
+        return True
+    except Exception:
+        return False
 
 def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
     """
@@ -72,15 +85,16 @@ def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
 
 
 # ============================================================
-# DESCARGA DE AUDIO (CON SOPORTE DE COOKIES Y BYPASS)
+# DESCARGA DE AUDIO (CON CONVERSIÓN DE URL Y BYPASS)
 # ============================================================
 
-def descargar_audio(youtube_url):
+def descargar_audio(video_id):
     """
-    Descarga el audio de YouTube Music en formato MP3 
-    utilizando yt-dlp, cookies y cliente android/web para evitar bloqueos.
+    Descarga el audio en formato MP3 utilizando yt-dlp.
+    Usa el enlace estándar de YouTube (no music) para evitar el error de formatos ocultos.
     """
     archivo_salida = "temp_track.mp3"
+    url_descarga = f"https://www.youtube.com/watch?v={video_id}"
 
     if os.path.exists(archivo_salida):
         try:
@@ -89,7 +103,7 @@ def descargar_audio(youtube_url):
             pass
 
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'ba/b', # Best audio o Best fallback
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -100,7 +114,7 @@ def descargar_audio(youtube_url):
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web']
+                'player_client': ['web', 'default']
             }
         },
     }
@@ -110,7 +124,7 @@ def descargar_audio(youtube_url):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([youtube_url])
+            ydl.download([url_descarga])
 
         if os.path.exists(archivo_salida):
             return archivo_salida
@@ -124,16 +138,11 @@ def descargar_audio(youtube_url):
 # ALERTAS
 # ============================================================
 
-def enviar_alerta_error(
-    cancion,
-    etapa,
-    detalle
-):
+def enviar_alerta_error(cancion, etapa, detalle):
     """Envía una alerta privada cuando una publicación falla."""
     try:
         titulo = escapar(cancion.get("titulo", "Desconocido"))
         artistas = escapar(cancion.get("artistas", "Desconocido"))
-        tipo = escapar(cancion.get("tipo", "Desconocido"))
         nombre_publicacion = escapar(cancion.get("nombre_publicacion", ""))
         anio = escapar(cancion.get("anio", ""))
         ahora = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -202,14 +211,14 @@ def publicar_cancion(cancion):
     if not foto_url:
         return False, "No se encontró miniatura disponible para la foto."
 
-    # Procesar y recortar la miniatura localmente para evitar espacios vacíos
+    # Procesar y recortar la miniatura
     print(f"Procesando y recortando miniatura para: {cancion['titulo']}...")
     archivo_foto_local = preparar_miniatura(foto_url)
 
     if not archivo_foto_local or not os.path.exists(archivo_foto_local):
         return False, "Fallo al procesar/recortar la miniatura de la foto."
 
-    # 1. Enviar Mensaje 1: Foto recortada con metadatos y botón inline
+    # 1. Enviar Mensaje 1: Foto recortada
     try:
         with open(archivo_foto_local, "rb") as foto_file:
             files = {"photo": foto_file}
@@ -241,14 +250,14 @@ def publicar_cancion(cancion):
             os.remove(archivo_foto_local)
         return False, f"Excepción al enviar la foto: {str(error)}"
 
-    # 2. Descargar audio temporalmente para el Mensaje 2
+    # 2. Descargar audio
     print(f"Descargando audio para: {cancion['titulo']}...")
-    archivo_audio = descargar_audio(cancion["youtube_url"])
+    archivo_audio = descargar_audio(cancion["video_id"])
 
     if not archivo_audio or not os.path.exists(archivo_audio):
         return False, "Fallo al descargar el archivo de audio con yt-dlp."
 
-    # 3. Enviar Mensaje 2: Audio independiente con etiqueta requerida
+    # 3. Enviar Mensaje 2: Audio independiente
     caption_audio = "🎧 @Cubaton_Music"
 
     try:
@@ -286,13 +295,22 @@ def publicar_cancion(cancion):
 
 
 # ============================================================
-# PROGRAMA PRINCIPAL (MODO PRUEBA CON 2 URLS ESPECÍFICAS)
+# PROGRAMA PRINCIPAL
 # ============================================================
 
 def main():
     print("=" * 60)
     print("CUBATON MUSIC BOT - PRUEBA MANUAL")
     print("=" * 60)
+
+    # --------------------------------------------------------
+    # NUEVO: Verificación de FFmpeg al inicio del script
+    # --------------------------------------------------------
+    if verificar_ffmpeg():
+        print("✅ FFmpeg está instalado correctamente y listo para convertir audio.\n")
+    else:
+        print("❌ ADVERTENCIA: FFmpeg NO está instalado o no está en el PATH.\n")
+    # --------------------------------------------------------
 
     if not TELEGRAM_BOT_TOKEN:
         print("ERROR: No existe el secreto TELEGRAM_BOT_TOKEN.")
@@ -317,29 +335,23 @@ def main():
 
             print(f"Obteniendo metadatos reales para video_id: {video_id}...")
             
-            # Obtener datos enriquecidos de la pista (artistas limpios, álbum)
             watch_info = ytmusic.get_watch_playlist(videoId=video_id)
             song_info = ytmusic.get_song(video_id)
             
-            # Extraer metadatos
             track_data = watch_info["tracks"][0] if watch_info.get("tracks") else {}
             video_details = song_info.get("videoDetails", {})
             
-            # Título
             titulo = track_data.get("title") or video_details.get("title", "Canción Desconocida")
             
-            # Artistas (extraídos limpiamente)
             artistas_raw = track_data.get("artists", [])
             if artistas_raw:
                 autor = ", ".join([a["name"] for a in artistas_raw if "name" in a and a["name"] != "Topic"])
             else:
                 autor = video_details.get("author", "Artista Desconocido").replace(" - Topic", "")
             
-            # Álbum / Single
             album_info = track_data.get("album")
             nombre_publicacion = album_info.get("name") if album_info else "Single"
             
-            # Año de publicación
             anio = datetime.now().year
             try:
                 publish_date = song_info.get("microformat", {}).get("microformatDataRenderer", {}).get("publishDate", "")
@@ -348,7 +360,6 @@ def main():
             except Exception:
                 pass
             
-            # Miniatura (la de mejor calidad disponible)
             thumbnails = track_data.get("thumbnail", [])
             if not thumbnails:
                 thumbnails = video_details.get("thumbnail", {}).get("thumbnails", [])
