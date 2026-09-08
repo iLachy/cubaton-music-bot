@@ -85,13 +85,13 @@ def preparar_miniatura(url_imagen, archivo_salida="temp_thumb.jpg"):
 
 
 # ============================================================
-# DESCARGA DE AUDIO (CON CONVERSIÓN DE URL Y BYPASS)
+# DESCARGA DE AUDIO (BYPASS CON CLIENTES MÓVILES)
 # ============================================================
 
 def descargar_audio(video_id):
     """
     Descarga el audio en formato MP3 utilizando yt-dlp.
-    Usa el enlace estándar de YouTube (no music) para evitar el error de formatos ocultos.
+    Utiliza clientes móviles (android, ios) para evitar el error 'The page needs to be reloaded'.
     """
     archivo_salida = "temp_track.mp3"
     url_descarga = f"https://www.youtube.com/watch?v={video_id}"
@@ -102,36 +102,46 @@ def descargar_audio(video_id):
         except Exception:
             pass
 
-    ydl_opts = {
-        'format': 'ba/b', # Best audio o Best fallback
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': 'temp_track',
-        'quiet': True,
-        'no_warnings': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'default']
-            }
-        },
-    }
+    # Combinaciones de clientes a probar para evitar bloqueos
+    estrategias_clientes = [
+        ['android', 'ios'],
+        ['ios'],
+        ['android_vr'],
+    ]
 
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = "cookies.txt"
+    for clientes in estrategias_clientes:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': 'temp_track',
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': clientes
+                }
+            },
+        }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url_descarga])
+        # Incluir cookies solo si el archivo existe y tiene contenido
+        if os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 0:
+            ydl_opts['cookiefile'] = "cookies.txt"
 
-        if os.path.exists(archivo_salida):
-            return archivo_salida
-        return None
-    except Exception as error:
-        print(f"Error descargando audio con yt-dlp: {error}")
-        return None
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url_descarga])
+
+            if os.path.exists(archivo_salida):
+                return archivo_salida
+        except Exception as error:
+            print(f"Intento con cliente {clientes} falló: {error}")
+            continue
+
+    return None
 
 
 # ============================================================
@@ -303,14 +313,10 @@ def main():
     print("CUBATON MUSIC BOT - PRUEBA MANUAL")
     print("=" * 60)
 
-    # --------------------------------------------------------
-    # NUEVO: Verificación de FFmpeg al inicio del script
-    # --------------------------------------------------------
     if verificar_ffmpeg():
         print("✅ FFmpeg está instalado correctamente y listo para convertir audio.\n")
     else:
         print("❌ ADVERTENCIA: FFmpeg NO está instalado o no está en el PATH.\n")
-    # --------------------------------------------------------
 
     if not TELEGRAM_BOT_TOKEN:
         print("ERROR: No existe el secreto TELEGRAM_BOT_TOKEN.")
