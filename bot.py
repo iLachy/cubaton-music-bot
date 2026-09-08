@@ -264,7 +264,11 @@ def main():
             
             titulo = detalles.get("title", "Canción de Prueba")
             autor = detalles.get("author", "Artista de Prueba")
+            
+            # Intenta obtener miniaturas de la API; si no hay, usa la URL oficial de YouTube como respaldo
             thumbnails = detalles.get("thumbnail", {}).get("thumbnails", [])
+            if not thumbnails:
+                thumbnails = [{"url": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"}]
 
             cancion = {
                 "id": f"video:{video_id}",
