@@ -2,22 +2,31 @@ import os
 import json
 import html
 from datetime import datetime, timezone
+
 import requests
 from ytmusicapi import YTMusic
-import yt_dlp  # NUEVO IMPORT PARA DESCARGAR AUDIO
+
 
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
+
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+
 TELEGRAM_CHAT_ID = "@Cubaton_Music"
 TELEGRAM_ALERT_CHAT_ID = "@CubatonMusicBot"
+
 STATE_FILE = "state/releases.json"
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+
+TELEGRAM_API = (
+    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+)
+
 
 # ============================================================
-# ARTISTAS MONITORIZADOS (Mantenemos tu lista intacta)
+# ARTISTAS MONITORIZADOS
 # ============================================================
+
 ARTISTAS = [
     {
         "nombre": "Bebeshito",
@@ -165,112 +174,269 @@ ARTISTAS = [
 # ============================================================
 # UTILIDADES
 # ============================================================
+
 def escapar(texto):
     """Escapa texto para Telegram HTML."""
     if texto is None:
         return ""
+
     return html.escape(str(texto))
 
 
 def normalizar_nombre(nombre):
     """Normaliza un nombre para comparaciones."""
-    return " ".join(str(nombre).strip().split()).casefold()
+    return " ".join(
+        str(nombre).strip().split()
+    ).casefold()
 
 
 # ============================================================
 # ESTADO
 # ============================================================
+
 ESTADO_VERSION = 2
 
 
 def cargar_estado():
-    """Carga el estado. La versión 2 guarda cada canción individualmente."""
+    """
+    Carga el estado.
+
+    La versión 2 guarda cada canción individualmente.
+    """
+
     if not os.path.exists(STATE_FILE):
         return None
+
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as archivo:
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8"
+        ) as archivo:
+
             estado = json.load(archivo)
+
         if not isinstance(estado, dict):
             return None
+
         if estado.get("version") != ESTADO_VERSION:
+            print("Estado antiguo detectado.")
+            print(
+                "Se reconstruirá la línea base "
+                "con el nuevo sistema."
+            )
             return None
-        canciones = estado.get("canciones", [])
+
+        canciones = estado.get(
+            "canciones",
+            []
+        )
+
         if not isinstance(canciones, list):
             return None
+
         return {
             "version": ESTADO_VERSION,
             "canciones": set(canciones),
         }
+
     except Exception as error:
-        print(f"No se pudo cargar el estado: {error}")
+
+        print(
+            f"No se pudo cargar el estado: {error}"
+        )
+
         return None
 
 
 def guardar_estado(estado):
     """Guarda el estado en state/releases.json."""
+
     carpeta = os.path.dirname(STATE_FILE)
+
     if carpeta:
-        os.makedirs(carpeta, exist_ok=True)
+        os.makedirs(
+            carpeta,
+            exist_ok=True
+        )
+
     datos = {
         "version": ESTADO_VERSION,
-        "canciones": sorted(list(estado["canciones"])),
+        "canciones": sorted(
+            list(estado["canciones"])
+        ),
     }
-    with open(STATE_FILE, "w", encoding="utf-8") as archivo:
-        json.dump(datos, archivo, ensure_ascii=False, indent=2)
+
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8"
+    ) as archivo:
+
+        json.dump(
+            datos,
+            archivo,
+            ensure_ascii=False,
+            indent=2
+        )
 
 
 # ============================================================
 # ARTISTAS
 # ============================================================
+
 def formatear_artistas(artistas):
-    """Formatea los artistas acreditados."""
+    """
+    Formatea los artistas acreditados.
+
+    Ejemplos:
+
+    Bebeshito
+
+    Bebeshito, Dj Honda
+
+    Bebeshito, Charly & Johayron, Dany Ome
+
+    Excepción:
+
+    Rey Tony + Helabusador
+    -> Rey Tony & Helabusador
+    """
+
     nombres = []
     vistos = set()
+
     for artista in artistas:
+
         if not artista:
             continue
-        nombre = str(artista).strip()
+
+        nombre = str(
+            artista
+        ).strip()
+
         if not nombre:
             continue
-        clave = normalizar_nombre(nombre)
+
+        clave = normalizar_nombre(
+            nombre
+        )
+
         if clave in vistos:
             continue
+
         vistos.add(clave)
         nombres.append(nombre)
+
+    claves = {
+        normalizar_nombre(nombre)
+        for nombre in nombres
+    }
+
+    tiene_rey_tony = (
+        "rey tony" in claves
+    )
+
+    tiene_helabusador = (
+        "helabusador" in claves
+    )
+
+    if (
+        tiene_rey_tony
+        and tiene_helabusador
+    ):
+
+        resultado = []
+
+        for nombre in nombres:
+
+            clave = normalizar_nombre(
+                nombre
+            )
+
+            if clave in (
+                "rey tony",
+                "helabusador",
+            ):
+                continue
+
+            resultado.append(nombre)
+
+        resultado.insert(
+            0,
+            "Rey Tony & Helabusador"
+        )
+
+        nombres = resultado
+
     return ", ".join(nombres)
 
 
 def extraer_artistas_de_objetos(objetos):
     """Extrae nombres de artistas."""
+
     resultado = []
+
     if not objetos:
         return resultado
+
     for artista in objetos:
-        if not isinstance(artista, dict):
+
+        if not isinstance(
+            artista,
+            dict
+        ):
             continue
-        nombre = artista.get("name")
+
+        nombre = artista.get(
+            "name"
+        )
+
         if nombre:
-            resultado.append(nombre)
+            resultado.append(
+                nombre
+            )
+
     return resultado
 
 
 # ============================================================
 # INFORMACIÓN DEL ÁLBUM / EP
 # ============================================================
-def obtener_datos_album(ytmusic, browse_id):
-    """Obtiene información completa de un EP o álbum."""
+
+def obtener_datos_album(
+    ytmusic,
+    browse_id
+):
+    """
+    Obtiene información completa
+    de un EP o álbum.
+    """
+
     if not browse_id:
         return None
+
     try:
-        return ytmusic.get_album(browse_id)
+
+        return ytmusic.get_album(
+            browse_id
+        )
+
     except Exception as error:
-        print(f"No se pudo obtener el álbum {browse_id}: {error}")
+
+        print(
+            f"No se pudo obtener "
+            f"el álbum {browse_id}: "
+            f"{error}"
+        )
+
         return None
 
 
 # ============================================================
 # CREAR CANCIÓN
 # ============================================================
+
 def crear_cancion_desde_track(
     track,
     artista_principal,
@@ -279,352 +445,1074 @@ def crear_cancion_desde_track(
     titulo_lanzamiento=None,
     album_browse_id=None,
 ):
-    """Convierte una pista de YouTube Music en una canción individual."""
-    if not isinstance(track, dict):
+    """
+    Convierte una pista de YouTube Music
+    en una canción individual.
+
+    La publicación mostrará:
+
+    📀 Single
+
+    o:
+
+    📀 Nombre del EP
+
+    o:
+
+    📀 Nombre del Álbum
+    """
+
+    if not isinstance(
+        track,
+        dict
+    ):
         return None
-    video_id = track.get("videoId")
+
+    video_id = track.get(
+        "videoId"
+    )
+
     if not video_id:
         return None
-    titulo = track.get("title")
+
+    titulo = track.get(
+        "title"
+    )
+
     if not titulo:
         return None
-    artistas = extraer_artistas_de_objetos(track.get("artists"))
+
+    artistas = (
+        extraer_artistas_de_objetos(
+            track.get("artists")
+        )
+    )
+
     if not artistas:
-        artistas = [artista_principal]
-    artistas_formateados = formatear_artistas(artistas)
+        artistas = [
+            artista_principal
+        ]
+
+    artistas_formateados = (
+        formatear_artistas(
+            artistas
+        )
+    )
+
     if tipo_lanzamiento == "Single":
+
         nombre_publicacion = "Single"
+
     else:
-        nombre_publicacion = titulo_lanzamiento or "Sin título"
-    youtube_url = f"https://music.youtube.com/watch?v={video_id}"
+
+        nombre_publicacion = (
+            titulo_lanzamiento
+            or "Sin título"
+        )
+
+    youtube_url = (
+        "https://music.youtube.com/"
+        f"watch?v={video_id}"
+    )
+
     return {
+
+        # Identificador único de la canción
         "id": f"video:{video_id}",
+
         "video_id": video_id,
+
         "titulo": titulo,
-        "artistas": artistas_formateados,
+
+        "artistas": (
+            artistas_formateados
+        ),
+
+        # Single / EP / Album
         "tipo": tipo_lanzamiento,
-        "anio": str(anio or ""),
-        "nombre_publicacion": nombre_publicacion,
+
+        "anio": str(
+            anio or ""
+        ),
+
+        # Esto es lo que aparecerá
+        # después del icono 📀
+        "nombre_publicacion": (
+            nombre_publicacion
+        ),
+
         "youtube_url": youtube_url,
-        "artista_monitorizado": artista_principal,
-        "titulo_lanzamiento": titulo_lanzamiento or titulo,
-        "album_browse_id": album_browse_id,
+
+        "artista_monitorizado": (
+            artista_principal
+        ),
+
+        "titulo_lanzamiento": (
+            titulo_lanzamiento
+            or titulo
+        ),
+
+        "album_browse_id": (
+            album_browse_id
+        ),
     }
 
 
 # ============================================================
 # OBTENER CANCIONES DE UN ARTISTA
 # ============================================================
-def obtener_lanzamientos_artista(ytmusic, artista):
-    """Obtiene canciones individuales de un artista."""
+
+def obtener_lanzamientos_artista(
+    ytmusic,
+    artista
+):
+    """
+    Obtiene canciones individuales.
+
+    Single:
+        1 canción.
+
+    EP:
+        Todas sus canciones.
+
+    Álbum:
+        Todas sus canciones.
+    """
+
     nombre = artista["nombre"]
-    channel_id = artista["channel_id"]
+
+    channel_id = artista[
+        "channel_id"
+    ]
+
+    print(
+        f"Comprobando: {nombre}"
+    )
+
     try:
-        datos = ytmusic.get_artist(channel_id)
+
+        datos = ytmusic.get_artist(
+            channel_id
+        )
+
     except Exception as error:
+
+        print(
+            f"ERROR obteniendo "
+            f"artista {nombre}: "
+            f"{error}"
+        )
+
         return []
+
     canciones = []
 
-    # Singles
-    singles = datos.get("singles", {})
-    for single in singles.get("results", []):
-        video_id = single.get("videoId")
+    # ========================================================
+    # SINGLES
+    # ========================================================
+
+    singles = datos.get(
+        "singles",
+        {}
+    )
+
+    resultados_singles = (
+        singles.get(
+            "results",
+            []
+        )
+    )
+
+    for single in resultados_singles:
+
+        video_id = single.get(
+            "videoId"
+        )
+
         if not video_id:
             continue
-        titulo = single.get("title")
+
+        titulo = single.get(
+            "title"
+        )
+
         if not titulo:
             continue
-        artistas = extraer_artistas_de_objetos(single.get("artists"))
-        if not artistas:
-            artistas = [nombre]
-        anio = single.get("year", "")
-        cancion = crear_cancion_desde_track(
-            {
-                "videoId": video_id,
-                "title": titulo,
-                "artists": [{"name": a} for a in artistas],
-            },
-            nombre,
-            "Single",
-            anio,
-            titulo_lanzamiento=titulo,
-        )
-        if cancion:
-            canciones.append(cancion)
 
-    # Álbumes / EPs
-    albums = datos.get("albums", {})
-    for album in albums.get("results", []):
-        browse_id = album.get("browseId")
+        artistas = (
+            extraer_artistas_de_objetos(
+                single.get(
+                    "artists"
+                )
+            )
+        )
+
+        if not artistas:
+            artistas = [
+                nombre
+            ]
+
+        anio = single.get(
+            "year",
+            ""
+        )
+
+        cancion = (
+            crear_cancion_desde_track(
+                {
+                    "videoId": video_id,
+                    "title": titulo,
+                    "artists": [
+                        {
+                            "name":
+                            artista_nombre
+                        }
+                        for artista_nombre
+                        in artistas
+                    ],
+                },
+                nombre,
+                "Single",
+                anio,
+                titulo_lanzamiento=titulo,
+            )
+        )
+
+        if cancion:
+            canciones.append(
+                cancion
+            )
+
+    # ========================================================
+    # EP / ÁLBUMES
+    # ========================================================
+
+    albums = datos.get(
+        "albums",
+        {}
+    )
+
+    resultados_albums = (
+        albums.get(
+            "results",
+            []
+        )
+    )
+
+    for album in resultados_albums:
+
+        browse_id = album.get(
+            "browseId"
+        )
+
         if not browse_id:
             continue
-        titulo_album = album.get("title", "Sin título")
-        tipo_album = album.get("type", "Album")
-        tipo_normalizado = str(tipo_album).strip()
-        if tipo_normalizado.casefold() == "ep":
+
+        titulo_album = album.get(
+            "title",
+            "Sin título"
+        )
+
+        tipo_album = album.get(
+            "type",
+            "Album"
+        )
+
+        tipo_normalizado = str(
+            tipo_album
+        ).strip()
+
+        if (
+            tipo_normalizado.casefold()
+            == "ep"
+        ):
+
             tipo_normalizado = "EP"
-        elif tipo_normalizado.casefold() in ("album", "álbum"):
+
+        elif (
+            tipo_normalizado.casefold()
+            in ("album", "álbum")
+        ):
+
             tipo_normalizado = "Album"
-        anio = album.get("year", "")
-        datos_album = obtener_datos_album(ytmusic, browse_id)
+
+        anio = album.get(
+            "year",
+            ""
+        )
+
+        datos_album = (
+            obtener_datos_album(
+                ytmusic,
+                browse_id
+            )
+        )
+
         if not datos_album:
             continue
-        tipo_datos = datos_album.get("type")
+
+        tipo_datos = (
+            datos_album.get(
+                "type"
+            )
+        )
+
         if tipo_datos:
-            tipo_normalizado = str(tipo_datos).strip()
-            if tipo_normalizado.casefold() == "ep":
+
+            tipo_normalizado = str(
+                tipo_datos
+            ).strip()
+
+            if (
+                tipo_normalizado.casefold()
+                == "ep"
+            ):
+
                 tipo_normalizado = "EP"
-            elif tipo_normalizado.casefold() in ("album", "álbum"):
+
+            elif (
+                tipo_normalizado.casefold()
+                in ("album", "álbum")
+            ):
+
                 tipo_normalizado = "Album"
-        anio_datos = datos_album.get("year")
+
+        anio_datos = (
+            datos_album.get(
+                "year"
+            )
+        )
+
         if anio_datos:
             anio = anio_datos
-        tracks = datos_album.get("tracks", [])
-        for track in tracks:
-            cancion = crear_cancion_desde_track(
-                track,
-                nombre,
-                tipo_normalizado,
-                anio,
-                titulo_lanzamiento=titulo_album,
-                album_browse_id=browse_id,
+
+        tracks = (
+            datos_album.get(
+                "tracks",
+                []
             )
+        )
+
+        if not tracks:
+
+            print(
+                f"Sin pistas disponibles: "
+                f"{titulo_album}"
+            )
+
+            continue
+
+        print(
+            f"{tipo_normalizado}: "
+            f"{titulo_album} -> "
+            f"{len(tracks)} canciones"
+        )
+
+        for track in tracks:
+
+            cancion = (
+                crear_cancion_desde_track(
+                    track,
+                    nombre,
+                    tipo_normalizado,
+                    anio,
+                    titulo_lanzamiento=(
+                        titulo_album
+                    ),
+                    album_browse_id=(
+                        browse_id
+                    ),
+                )
+            )
+
             if cancion:
-                canciones.append(cancion)
+                canciones.append(
+                    cancion
+                )
+
     return canciones
 
 
 # ============================================================
 # ALERTAS
 # ============================================================
-def enviar_alerta_error(cancion, etapa, detalle):
-    """Envía una alerta privada cuando una publicación falla."""
+
+def enviar_alerta_error(
+    cancion,
+    etapa,
+    detalle
+):
+    """
+    Envía una alerta privada cuando
+    una publicación falla.
+    """
+
     try:
-        titulo = escapar(cancion.get("titulo", "Desconocido"))
-        artistas = escapar(cancion.get("artistas", "Desconocido"))
-        nombre_publicacion = escapar(cancion.get("nombre_publicacion", ""))
-        anio = escapar(cancion.get("anio", ""))
-        ahora = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        mensaje = (
-            "⚠️ <b>Error en Cubaton Music Bot</b>\n\n"
-            f"🎤 <b>Artista(s):</b> {artistas}\n"
-            f"🎵 <b>Canción:</b> {titulo}\n"
-            f"📀 <b>Lanzamiento:</b> {nombre_publicacion}\n"
-            f"🗓 <b>Año:</b> {anio}\n"
-            f"🔧 <b>Etapa:</b> {escapar(etapa)}\n"
-            f"🕐 <b>Hora:</b> {ahora}\n\n"
-            f"❌ <b>Error:</b>\n{escapar(detalle)}"
+
+        titulo = escapar(
+            cancion.get(
+                "titulo",
+                "Desconocido"
+            )
         )
-        requests.post(
+
+        artistas = escapar(
+            cancion.get(
+                "artistas",
+                "Desconocido"
+            )
+        )
+
+        tipo = escapar(
+            cancion.get(
+                "tipo",
+                "Desconocido"
+            )
+        )
+
+        nombre_publicacion = (
+            cancion.get(
+                "nombre_publicacion",
+                ""
+            )
+        )
+
+        nombre_publicacion = escapar(
+            nombre_publicacion
+        )
+
+        anio = escapar(
+            cancion.get(
+                "anio",
+                ""
+            )
+        )
+
+        ahora = (
+            datetime.now(
+                timezone.utc
+            ).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+        )
+
+        mensaje = (
+            "⚠️ <b>Error en "
+            "Cubaton Music Bot</b>\n\n"
+
+            f"🎤 <b>Artista(s):</b> "
+            f"{artistas}\n"
+
+            f"🎵 <b>Canción:</b> "
+            f"{titulo}\n"
+
+            f"📀 <b>Lanzamiento:</b> "
+            f"{nombre_publicacion}\n"
+
+            f"🗓 <b>Año:</b> "
+            f"{anio}\n"
+
+            f"🔧 <b>Etapa:</b> "
+            f"{escapar(etapa)}\n"
+
+            f"🕐 <b>Hora:</b> "
+            f"{ahora}\n\n"
+
+            f"❌ <b>Error:</b>\n"
+            f"{escapar(detalle)}\n\n"
+
+            "🔄 La canción NO se marcará "
+            "como publicada y será "
+            "intentada nuevamente "
+            "en la próxima ejecución."
+        )
+
+        respuesta = requests.post(
+
             f"{TELEGRAM_API}/sendMessage",
+
             json={
-                "chat_id": TELEGRAM_ALERT_CHAT_ID,
-                "text": mensaje,
-                "parse_mode": "HTML",
+                "chat_id":
+                    TELEGRAM_ALERT_CHAT_ID,
+
+                "text":
+                    mensaje,
+
+                "parse_mode":
+                    "HTML",
             },
+
             timeout=30,
         )
+
+        if not respuesta.ok:
+
+            print(
+                "No se pudo enviar "
+                "la alerta de Telegram: "
+                f"{respuesta.text}"
+            )
+
     except Exception as error:
-        print(f"No se pudo enviar la alerta de error: {error}")
+
+        print(
+            "No se pudo enviar "
+            f"la alerta de error: {error}"
+        )
 
 
 # ============================================================
-# PUBLICAR CANCIÓN (Mensaje 1: Foto con Metadatos)
+# PUBLICAR CANCIÓN
 # ============================================================
-def publicar_cancion(cancion):
-    titulo = escapar(cancion["titulo"])
-    artistas = escapar(cancion["artistas"])
-    nombre_publicacion = escapar(cancion["nombre_publicacion"])
-    anio = escapar(cancion["anio"])
+
+def publicar_cancion(
+    cancion
+):
+    """
+    Publica una canción.
+
+    Formato:
+
+    🎤 Artistas
+    🎵 Título
+    📀 Nombre del EP/Álbum o Single
+    🗓 2026
+
+    @Cubaton_Music
+    """
+
+    titulo = escapar(
+        cancion["titulo"]
+    )
+
+    artistas = escapar(
+        cancion["artistas"]
+    )
+
+    nombre_publicacion = escapar(
+        cancion[
+            "nombre_publicacion"
+        ]
+    )
+
+    anio = escapar(
+        cancion["anio"]
+    )
+
+    # ========================================================
+    # FORMATO EXACTO DE PUBLICACIÓN
+    # ========================================================
 
     caption = (
         f"🎤 <b>{artistas}</b>\n"
         f"🎵 <b>{titulo}</b>\n"
         f"📀 <b>{nombre_publicacion}</b>\n"
-        f"🗓 {anio}"
+        f"🗓 {anio}\n"
+        f"\n"
+        f"@Cubaton_Music"
     )
 
+    # ========================================================
+    # BOTÓN
+    # ========================================================
+
     reply_markup = {
+
         "inline_keyboard": [
+
             [
+
                 {
-                    "text": "▶️ Escuchar en YouTube Music",
-                    "url": cancion["youtube_url"],
+                    "text":
+                        "▶️ Escuchar en YouTube Music",
+
+                    "url":
+                        cancion[
+                            "youtube_url"
+                        ],
                 }
+
             ]
+
         ]
+
     }
 
-    video_id = cancion["video_id"]
-    thumbnail_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+    # ========================================================
+    # MINIATURA
+    # ========================================================
+
+    video_id = cancion[
+        "video_id"
+    ]
+
+    thumbnail_url = (
+        "https://i.ytimg.com/vi/"
+        f"{video_id}/hqdefault.jpg"
+    )
 
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "photo": thumbnail_url,
-        "caption": caption,
-        "parse_mode": "HTML",
-        "reply_markup": reply_markup,
+
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "photo":
+            thumbnail_url,
+
+        "caption":
+            caption,
+
+        "parse_mode":
+            "HTML",
+
+        "reply_markup":
+            reply_markup,
     }
 
+    # ========================================================
+    # ENVIAR A TELEGRAM
+    # ========================================================
+
     try:
+
         respuesta = requests.post(
+
             f"{TELEGRAM_API}/sendPhoto",
+
             json=payload,
+
             timeout=30,
         )
+
         if not respuesta.ok:
-            return (False, respuesta.text)
-        datos = respuesta.json()
-        if not datos.get("ok"):
-            return (False, str(datos))
-        return (True, None)
-    except Exception as error:
-        return (False, str(error))
 
-
-# ============================================================
-# DESCARGAR Y PUBLICAR AUDIO (Mensaje 2: Archivo MP3)
-# ============================================================
-def descargar_y_enviar_audio(cancion):
-    video_id = cancion["video_id"]
-    url = cancion["youtube_url"]
-    archivo_temporal = f"{video_id}.m4a"
-
-    print("   ⬇️ Descargando audio desde YouTube Music...")
-
-    ydl_opts = {
-        "format": "ba[ext=m4a]/ba[ext=mp3]/ba",
-        "outtmpl": archivo_temporal,
-        "quiet": True,
-        "no_warnings": True,
-        "extract_audio": True,
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        if not os.path.exists(archivo_temporal):
-            return (False, "El archivo de audio no se generó correctamente.")
-
-        print("   ⬆️ Subiendo audio a Telegram...")
-
-        with open(archivo_temporal, "rb") as audio_file:
-            payload = {
-                "chat_id": TELEGRAM_CHAT_ID,
-                "caption": "🎧 @Cubaton_Music",
-                "title": cancion["titulo"],
-                "performer": cancion["artistas"],
-            }
-            archivos = {"audio": audio_file}
-
-            respuesta = requests.post(
-                f"{TELEGRAM_API}/sendAudio",
-                data=payload,
-                files=archivos,
-                timeout=120,
+            return (
+                False,
+                respuesta.text
             )
 
-            if not respuesta.ok:
-                return (False, respuesta.text)
+        datos = respuesta.json()
 
-            datos = respuesta.json()
-            if not datos.get("ok"):
-                return (False, str(datos))
+        if not datos.get(
+            "ok"
+        ):
 
-        return (True, None)
+            return (
+                False,
+                str(datos)
+            )
+
+        return (
+            True,
+            None
+        )
 
     except Exception as error:
-        return (False, str(error))
-    finally:
-        if os.path.exists(archivo_temporal):
-            os.remove(archivo_temporal)
+
+        return (
+            False,
+            str(error)
+        )
 
 
 # ============================================================
-# PROGRAMA PRINCIPAL (MODIFICADO PARA PRUEBA DE 2 URLS EXACTAS)
+# CREAR LÍNEA BASE
 # ============================================================
+
+def crear_linea_base(
+    ytmusic
+):
+    """
+    Crea la línea base del nuevo sistema.
+
+    IMPORTANTE:
+    No publica nada.
+
+    Registra cada canción individual.
+    """
+
+    print()
+    print(
+        "CREANDO NUEVA LÍNEA BASE"
+    )
+
+    print(
+        "Sistema de seguimiento "
+        "por canciones."
+    )
+
+    print(
+        "No se publicará ningún "
+        "lanzamiento."
+    )
+
+    print()
+
+    canciones_registradas = set()
+
+    total_canciones = 0
+
+    for numero, artista in enumerate(
+        ARTISTAS,
+        start=1
+    ):
+
+        print(
+            f"[{numero}/{len(ARTISTAS)}] "
+            f"Comprobando: "
+            f"{artista['nombre']}"
+        )
+
+        canciones = (
+            obtener_lanzamientos_artista(
+                ytmusic,
+                artista
+            )
+        )
+
+        for cancion in canciones:
+
+            cancion_id = cancion[
+                "id"
+            ]
+
+            if (
+                cancion_id
+                in canciones_registradas
+            ):
+                continue
+
+            canciones_registradas.add(
+                cancion_id
+            )
+
+            total_canciones += 1
+
+    estado = {
+
+        "version":
+            ESTADO_VERSION,
+
+        "canciones":
+            canciones_registradas,
+    }
+
+    guardar_estado(
+        estado
+    )
+
+    print()
+    print(
+        "=" * 60
+    )
+
+    print(
+        "LÍNEA BASE CREADA "
+        "CORRECTAMENTE"
+    )
+
+    print(
+        f"Canciones registradas: "
+        f"{total_canciones}"
+    )
+
+    print(
+        "No se publicó ninguna "
+        "canción."
+    )
+
+    print(
+        "A partir de la próxima "
+        "ejecución se detectarán "
+        "las nuevas canciones."
+    )
+
+    print(
+        "=" * 60
+    )
+
+    return estado
+
+
+# ============================================================
+# PROGRAMA PRINCIPAL
+# ============================================================
+
 def main():
-    print("=" * 60)
-    print("CUBATON MUSIC BOT - MODO PRUEBA MANUAL")
-    print("=" * 60)
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        "CUBATON MUSIC BOT"
+    )
+
+    print(
+        "Detector automático "
+        "de nuevas canciones"
+    )
+
+    print(
+        "Singles + EP + Álbumes"
+    )
+
+    print(
+        "=" * 60
+    )
 
     if not TELEGRAM_BOT_TOKEN:
-        print("ERROR: No existe el secreto TELEGRAM_BOT_TOKEN.")
+
+        print(
+            "ERROR: No existe el secreto "
+            "TELEGRAM_BOT_TOKEN."
+        )
+
         return
 
     ytmusic = YTMusic()
 
-    # URLs de prueba proporcionadas
-    urls_prueba = [
-        "https://music.youtube.com/watch?v=a6W8HbHtP54",
-        "https://music.youtube.com/watch?v=OpY_ZT4vCAc",
-    ]
+    # ========================================================
+    # CARGAR ESTADO
+    # ========================================================
+
+    estado = cargar_estado()
+
+    if estado is None:
+
+        crear_linea_base(
+            ytmusic
+        )
+
+        return
+
+    canciones_publicadas = (
+        estado[
+            "canciones"
+        ]
+    )
+
+    print()
+
+    print(
+        "Canciones registradas "
+        "actualmente: "
+        f"{len(canciones_publicadas)}"
+    )
+
+    print()
+
+    # ========================================================
+    # DETECTAR NUEVAS CANCIONES
+    # ========================================================
 
     nuevas_canciones = []
 
-    for url in urls_prueba:
-        try:
-            video_id = url.split("v=")[1].split("&")[0]
-            info = ytmusic.get_song(video_id)
-            detalles = info.get("videoDetails", {})
+    detectadas_en_esta_ejecucion = (
+        set()
+    )
 
-            titulo = detalles.get("title", "Desconocido")
-            autor = detalles.get("author", "Artista Cubano")
-            anio = "2026"  # Año por defecto para la prueba
+    for numero, artista in enumerate(
+        ARTISTAS,
+        start=1
+    ):
 
-            cancion = {
-                "id": f"video:{video_id}",
-                "video_id": video_id,
-                "titulo": titulo,
-                "artistas": autor,
-                "tipo": "Single",
-                "anio": anio,
-                "nombre_publicacion": "Single",
-                "youtube_url": url,
-            }
-            nuevas_canciones.append(cancion)
-            print(f"✅ Canción cargada para prueba: {autor} - {titulo}")
-        except Exception as e:
-            print(f"❌ No se pudo procesar la URL {url}: {e}")
+        print(
+            f"[{numero}/{len(ARTISTAS)}] "
+            f"Comprobando: "
+            f"{artista['nombre']}"
+        )
+
+        canciones = (
+            obtener_lanzamientos_artista(
+                ytmusic,
+                artista
+            )
+        )
+
+        for cancion in canciones:
+
+            cancion_id = cancion[
+                "id"
+            ]
+
+            # Ya publicada
+            if (
+                cancion_id
+                in canciones_publicadas
+            ):
+                continue
+
+            # Duplicada en esta ejecución
+            if (
+                cancion_id
+                in detectadas_en_esta_ejecucion
+            ):
+                continue
+
+            detectadas_en_esta_ejecucion.add(
+                cancion_id
+            )
+
+            nuevas_canciones.append(
+                cancion
+            )
+
+    # ========================================================
+    # RESULTADO DEL DETECTOR
+    # ========================================================
+
+    print()
 
     if not nuevas_canciones:
-        print("No hay canciones para probar.")
+
+        print(
+            "No se detectaron "
+            "canciones nuevas."
+        )
+
+        print(
+            "No hay nada que publicar."
+        )
+
         return
 
-    print(f"\nIniciando publicación de prueba de {len(nuevas_canciones)} canciones...\n")
+    print(
+        f"Se detectaron "
+        f"{len(nuevas_canciones)} "
+        "canción(es) nueva(s)."
+    )
 
-    for numero, cancion in enumerate(nuevas_canciones, start=1):
-        print(f"[PUBLICACIÓN {numero}/{len(nuevas_canciones)}]")
-        print(f"Artista(s): {cancion['artistas']}")
-        print(f"Canción: {cancion['titulo']}")
+    print()
 
-        # 1. Enviar Imagen con Metadatos
-        exito_foto, error_foto = publicar_cancion(cancion)
+    # ========================================================
+    # PUBLICAR
+    # ========================================================
 
-        if exito_foto:
-            print("   ✅ METADATOS PUBLICADOS")
+    publicadas = 0
+    errores = 0
 
-            # 2. Descargar y Enviar Audio
-            exito_audio, error_audio = descargar_y_enviar_audio(cancion)
+    for numero, cancion in enumerate(
+        nuevas_canciones,
+        start=1
+    ):
 
-            if exito_audio:
-                print("   ✅ AUDIO PUBLICADO CORRECTAMENTE\n")
-            else:
-                print("   ❌ ERROR AL PUBLICAR AUDIO")
-                print(error_audio)
-                enviar_alerta_error(cancion, "Subida de Audio Prueba", error_audio)
-                print()
+        print(
+            f"[PUBLICACIÓN "
+            f"{numero}/"
+            f"{len(nuevas_canciones)}]"
+        )
+
+        print(
+            f"Artista(s): "
+            f"{cancion['artistas']}"
+        )
+
+        print(
+            f"Canción: "
+            f"{cancion['titulo']}"
+        )
+
+        print(
+            f"Lanzamiento: "
+            f"{cancion['nombre_publicacion']}"
+        )
+
+        print(
+            f"Año: "
+            f"{cancion['anio']}"
+        )
+
+        exito, error = (
+            publicar_cancion(
+                cancion
+            )
+        )
+
+        if exito:
+
+            print(
+                "PUBLICADA "
+                "CORRECTAMENTE"
+            )
+
+            # Solo se registra después
+            # de confirmarse la publicación.
+            canciones_publicadas.add(
+                cancion["id"]
+            )
+
+            # Guardado inmediato.
+            guardar_estado(
+                estado
+            )
+
+            publicadas += 1
+
         else:
-            print("   ❌ ERROR AL PUBLICAR METADATOS")
-            print(error_foto)
-            enviar_alerta_error(cancion, "Publicación Metadatos Prueba", error_foto)
-            print()
 
-    print("=" * 60)
-    print("PRUEBA FINALIZADA")
-    print("=" * 60)
+            print(
+                "ERROR AL PUBLICAR"
+            )
 
+            print(
+                error
+            )
+
+            errores += 1
+
+            enviar_alerta_error(
+                cancion,
+                "Publicación en Telegram",
+                error,
+            )
+
+            # No se registra.
+            # Se reintentará en la próxima
+            # ejecución.
+
+        print()
+
+    # ========================================================
+    # RESUMEN
+    # ========================================================
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        "RESUMEN DE LA EJECUCIÓN"
+    )
+
+    print(
+        f"Nuevas detectadas: "
+        f"{len(nuevas_canciones)}"
+    )
+
+    print(
+        f"Publicadas: "
+        f"{publicadas}"
+    )
+
+    print(
+        f"Errores: "
+        f"{errores}"
+    )
+
+    print(
+        "Total registradas en estado: "
+        f"{len(canciones_publicadas)}"
+    )
+
+    print(
+        "=" * 60
+    )
+
+
+# ============================================================
+# INICIO
+# ============================================================
 
 if __name__ == "__main__":
     main()
