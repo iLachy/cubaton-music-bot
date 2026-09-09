@@ -599,6 +599,168 @@ def crear_cancion_desde_track(
 # OBTENER CANCIONES DE UN ARTISTA
 # ============================================================
 
+def obtener_lanzamientos_fuente_nueva(
+    ytmusic,
+    channel_id,
+    nombre,
+    canciones_procesadas,
+):
+    """
+    Obtiene de forma completa los lanzamientos de una fuente nueva.
+
+    YouTube Music puede mostrar en get_artist() solamente una lista
+    resumida. Para una fuente nueva necesitamos consultar las listas
+    completas de singles y álbumes/EP mediante get_artist_albums().
+    """
+
+    canciones = []
+
+    try:
+        datos = ytmusic.get_artist(channel_id)
+    except Exception as error:
+        print(
+            f"ERROR obteniendo artista {nombre} "
+            f"(canal {channel_id}): {error}"
+        )
+        return canciones
+
+    # ------------------------------------------------------------
+    # Procesar una lista completa de lanzamientos.
+    # ------------------------------------------------------------
+    def procesar_lista_completa(clave):
+        bloque = datos.get(clave, {})
+
+        browse_id = bloque.get("browseId")
+        params = bloque.get("params")
+
+        if not browse_id or not params:
+            return
+
+        try:
+            lanzamientos = ytmusic.get_artist_albums(
+                channel_id,
+                params,
+                limit=None,
+                order="Recency",
+            )
+        except Exception as error:
+            print(
+                f"ERROR obteniendo lista completa de {clave} "
+                f"para {nombre} ({channel_id}): {error}"
+            )
+            return
+
+        for lanzamiento in lanzamientos:
+            release_browse_id = lanzamiento.get("browseId")
+
+            if not release_browse_id:
+                continue
+
+            titulo_lanzamiento = lanzamiento.get(
+                "title",
+                "Sin título"
+            )
+
+            tipo_lanzamiento = lanzamiento.get(
+                "type",
+                "Album"
+            )
+
+            tipo_normalizado = str(
+                tipo_lanzamiento
+            ).strip()
+
+            if tipo_normalizado.casefold() == "ep":
+                tipo_normalizado = "EP"
+            elif tipo_normalizado.casefold() in (
+                "album",
+                "álbum",
+            ):
+                tipo_normalizado = "Album"
+            else:
+                # La sección de singles corresponde a Single.
+                if clave == "singles":
+                    tipo_normalizado = "Single"
+
+            anio = lanzamiento.get("year", "")
+
+            try:
+                datos_lanzamiento = ytmusic.get_album(
+                    release_browse_id
+                )
+            except Exception as error:
+                print(
+                    f"No se pudo obtener el lanzamiento "
+                    f"{titulo_lanzamiento} ({release_browse_id}): "
+                    f"{error}"
+                )
+                continue
+
+            if not datos_lanzamiento:
+                continue
+
+            tipo_datos = datos_lanzamiento.get("type")
+            if tipo_datos:
+                tipo_normalizado = str(
+                    tipo_datos
+                ).strip()
+
+                if tipo_normalizado.casefold() == "ep":
+                    tipo_normalizado = "EP"
+                elif tipo_normalizado.casefold() in (
+                    "album",
+                    "álbum",
+                ):
+                    tipo_normalizado = "Album"
+
+            anio_datos = datos_lanzamiento.get("year")
+            if anio_datos:
+                anio = anio_datos
+
+            tracks = datos_lanzamiento.get("tracks", [])
+            if not tracks:
+                continue
+
+            print(
+                f"Fuente nueva -> {tipo_normalizado}: "
+                f"{titulo_lanzamiento} -> "
+                f"{len(tracks)} canciones"
+            )
+
+            for track in tracks:
+                video_id = track.get("videoId")
+                if not video_id:
+                    continue
+
+                cancion_id = f"video:{video_id}"
+                if cancion_id in canciones_procesadas:
+                    continue
+
+                cancion = crear_cancion_desde_track(
+                    track,
+                    nombre,
+                    tipo_normalizado,
+                    anio,
+                    titulo_lanzamiento=titulo_lanzamiento,
+                    album_browse_id=release_browse_id,
+                )
+
+                if not cancion:
+                    continue
+
+                cancion["_canal_origen"] = channel_id
+                cancion["_orden_origen"] = len(canciones)
+                cancion["_fuente_solo_ultima"] = True
+
+                canciones.append(cancion)
+                canciones_procesadas.add(cancion_id)
+
+    procesar_lista_completa("singles")
+    procesar_lista_completa("albums")
+
+    return canciones
+
+
 def obtener_lanzamientos_artista(
     ytmusic,
     artista
@@ -677,6 +839,22 @@ def obtener_lanzamientos_artista(
                 f"{len(channel_ids)}: "
                 f"{channel_id}"
             )
+
+        fuente_nueva = (
+            artista_es_nuevo
+            or channel_id in canales_solo_ultima
+        )
+
+        if fuente_nueva:
+            canciones_nuevas = obtener_lanzamientos_fuente_nueva(
+                ytmusic,
+                channel_id,
+                nombre,
+                canciones_procesadas,
+            )
+
+            canciones.extend(canciones_nuevas)
+            continue
 
         try:
 
