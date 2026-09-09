@@ -2214,116 +2214,130 @@ def crear_linea_base(
 
 
 def obtener_candidatos_reposicion(ytmusic, artista):
-    """Obtiene candidatos de reposición de forma rápida.
+    """Obtiene candidatos recientes para la reposición sin consultar álbumes.
 
-    Prioridad:
-    1. Fuentes habituales configuradas para el artista.
-    2. Búsqueda por artista como respaldo.
+    La búsqueda está orientada a 2026 para evitar seleccionar canciones antiguas
+    del catálogo. Solo se aceptan resultados donde el artista monitorizado figure
+    explícitamente entre los artistas acreditados.
 
     No consulta ni modifica state/releases.json.
     """
     nombre_artista = str(artista.get("nombre") or "").strip()
-    candidatos = []
-    videos_vistos = set()
-
-    try:
-        habituales = obtener_lanzamientos_artista(ytmusic, artista)
-    except Exception as error:
-        habituales = []
-        print(f"  ERROR obteniendo fuentes habituales de {nombre_artista}: {error}")
-
-    for indice, cancion in enumerate(habituales):
-        if not isinstance(cancion, dict):
-            continue
-        video_id = cancion.get("video_id") or cancion.get("id")
-        if not video_id or video_id in videos_vistos:
-            continue
-        copia = dict(cancion)
-        copia["_origen_reposicion"] = "fuente_habitual"
-        copia["_orden_reposicion"] = indice
-        candidatos.append(copia)
-        videos_vistos.add(video_id)
-
-    if candidatos:
-        return candidatos
+    if not nombre_artista:
+        return []
 
     artista_normalizado = normalizar_nombre(nombre_artista)
-    try:
-        resultados = ytmusic.search(
-            f"{nombre_artista} 2026",
-            filter="songs",
-            limit=10,
-            ignore_spelling=True,
-        )
-    except Exception as error:
-        print(f"  ERROR buscando {nombre_artista}: {error}")
-        resultados = []
+    candidatos = []
+    vistos = set()
 
-    for posicion, resultado in enumerate(resultados):
-        if not isinstance(resultado, dict):
-            continue
-        video_id = resultado.get("videoId")
-        titulo = resultado.get("title")
-        if not video_id or not titulo or video_id in videos_vistos:
-            continue
+    def buscar(consulta, prioridad):
+        try:
+            resultados = ytmusic.search(
+                consulta,
+                filter="songs",
+                limit=20,
+                ignore_spelling=True,
+            )
+        except Exception as error:
+            print(f"  ERROR buscando {nombre_artista}: {error}")
+            return
 
-        artistas = extraer_artistas_de_objetos(resultado.get("artists"))
-        claves_artistas = {normalizar_nombre(x) for x in artistas if x}
-        if artista_normalizado not in claves_artistas:
-            continue
+        for posicion, resultado in enumerate(resultados):
+            if not isinstance(resultado, dict):
+                continue
 
-        album = resultado.get("album") or {}
-        album_id = album.get("id") or album.get("browseId") if isinstance(album, dict) else None
-        album_titulo = album.get("name") or album.get("title") if isinstance(album, dict) else None
-        anio = str(resultado.get("year") or "2026")
+            video_id = resultado.get("videoId")
+            titulo = resultado.get("title")
+            if not video_id or not titulo or video_id in vistos:
+                continue
 
-        track = {
-            "videoId": video_id,
-            "title": titulo,
-            "artists": [{"name": nombre} for nombre in artistas],
-        }
-        cancion = crear_cancion_desde_track(
-            track,
-            nombre_artista,
-            "Single",
-            anio,
-            titulo_lanzamiento=(album_titulo or titulo),
-            album_browse_id=album_id,
-        )
-        if not cancion:
-            continue
+            artistas = extraer_artistas_de_objetos(
+                resultado.get("artists")
+            )
+            claves_artistas = {
+                normalizar_nombre(x) for x in artistas if x
+            }
+            if artista_normalizado not in claves_artistas:
+                continue
 
-        cancion["_origen_reposicion"] = "busqueda_artista"
-        cancion["_orden_reposicion"] = posicion
-        candidatos.append(cancion)
-        videos_vistos.add(video_id)
+            album = resultado.get("album") or {}
+            album_id = None
+            album_titulo = None
+            if isinstance(album, dict):
+                album_id = album.get("id") or album.get("browseId")
+                album_titulo = album.get("name") or album.get("title")
+
+            anio = str(resultado.get("year") or "")
+            try:
+                anio_num = int(anio)
+            except (TypeError, ValueError):
+                anio_num = 0
+
+            track = {
+                "videoId": video_id,
+                "title": titulo,
+                "artists": [{"name": nombre} for nombre in artistas],
+            }
+
+            cancion = crear_cancion_desde_track(
+                track,
+                nombre_artista,
+                "Single",
+                anio,
+                titulo_lanzamiento=(album_titulo or titulo),
+                album_browse_id=album_id,
+            )
+            if not cancion:
+                continue
+
+            cancion["_origen_reposicion"] = f"busqueda_{prioridad}"
+            cancion["_orden_reposicion"] = posicion
+            cancion["_anio_reposicion"] = anio_num
+            candidatos.append(cancion)
+            vistos.add(video_id)
+
+    # Primera pasada: priorizamos resultados explícitamente asociados a 2026.
+    buscar(f"{nombre_artista} 2026", "2026")
+
+    # Si YouTube Music no devuelve resultados de 2026, ampliamos la búsqueda
+    # al catálogo del artista y elegimos posteriormente el año más alto.
+    if not candidatos:
+        buscar(nombre_artista, "artista")
 
     return candidatos
 
 
 def seleccionar_ultima_para_reposicion(ytmusic, artista):
-    """Selecciona el primer candidato disponible sin consultas de fechas."""
+    """Selecciona la canción más reciente encontrada para un artista."""
     candidatos = obtener_candidatos_reposicion(ytmusic, artista)
     if not candidatos:
         return None
 
-    # Las fuentes habituales del detector ya están ordenadas por la API;
-    # el primer candidato es el que usamos como última canción disponible.
-    return candidatos[0]
+    # Dentro de 2026 (o del año más alto disponible), damos prioridad al orden
+    # de resultados de YouTube Music, que normalmente coloca antes lo reciente.
+    return max(
+        candidatos,
+        key=lambda cancion: (
+            int(cancion.get("_anio_reposicion") or 0),
+            -int(cancion.get("_orden_reposicion") or 0),
+        ),
+    )
 
 
 def repoblar_canal_con_ultimas(ytmusic):
     """
-    Repone el canal rápidamente: una canción por artista, sin ordenar.
+    Repone el canal rápidamente: una canción reciente por artista.
 
-    No consulta ni modifica state/releases.json.
+    No ordena las 36 publicaciones cronológicamente y no consulta ni modifica
+    state/releases.json.
     """
     print()
     print("=" * 60)
     print("MODO RECUPERACIÓN RÁPIDA")
     print("=" * 60)
-    print("1 canción por cada artista")
+    print("1 canción reciente por cada artista")
     print("Sin orden cronológico")
+    print("Prioridad de búsqueda: 2026 -> catálogo del artista")
     print("Estado persistente: NO se utiliza")
     print("Estado persistente: NO se modifica")
     print()
@@ -2347,7 +2361,10 @@ def repoblar_canal_con_ultimas(ytmusic):
 
         ids_vistos.add(video_id)
         seleccionadas.append(cancion)
-        print(f"  -> {cancion['titulo']} | {video_id}")
+        print(
+            f"  -> {cancion['titulo']} | {video_id} | "
+            f"Año: {cancion.get('_anio_reposicion') or cancion.get('anio') or 'N/D'}"
+        )
 
     print()
     print("=" * 60)
@@ -2363,7 +2380,10 @@ def repoblar_canal_con_ultimas(ytmusic):
     errores = 0
 
     for numero, cancion in enumerate(seleccionadas, start=1):
-        print(f"[RECUPERACIÓN {numero}/{len(seleccionadas)}] {cancion['artista_monitorizado']} -> {cancion['titulo']}")
+        print(
+            f"[RECUPERACIÓN {numero}/{len(seleccionadas)}] "
+            f"{cancion['artista_monitorizado']} -> {cancion['titulo']}"
+        )
         exito, error = publicar_cancion(ytmusic, cancion)
         if exito:
             publicadas += 1
@@ -2383,7 +2403,6 @@ def repoblar_canal_con_ultimas(ytmusic):
     print(f"Errores: {errores}")
     print("state/releases.json: SIN MODIFICAR")
     print("=" * 60)
-
 
 
 def main():
