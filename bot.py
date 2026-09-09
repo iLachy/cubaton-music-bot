@@ -638,7 +638,7 @@ def obtener_lanzamientos_fuente_nueva(
 
         try:
             lanzamientos = ytmusic.get_artist_albums(
-                channel_id,
+                browse_id,
                 params,
                 limit=None,
                 order="Recency",
