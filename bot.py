@@ -794,31 +794,36 @@ def preparar_nuevas_fuentes(canciones, canciones_publicadas):
 # PORTADA DE YOUTUBE MUSIC
 # ============================================================
 
-def _quitar_parametros_tamano_ytmusic(url, tamano=TAMANO_PORTADA):
-    """Sustituye los parámetros w/h de una URL yt3 de YouTube Music."""
-    if not url:
-        return url
-
-    # Ejemplos habituales:
-    # ...=w120-h120-l90-rj
-    # ...=w60-h60-l90-rj
-    # ...=w544-h544-l90-rj
-    url = re.sub(r"w\d+", f"w{tamano}", url, count=1)
-    url = re.sub(r"h\d+", f"h{tamano}", url, count=1)
-    return url
-
-
 def _extraer_urls_portada(resultado):
-    """Devuelve las URLs de portada de un resultado de YouTube Music."""
+    """Devuelve las miniaturas de YouTube Music ordenadas por resolución."""
     urls = []
 
     thumbnails = resultado.get("thumbnails") or []
     if isinstance(thumbnails, list):
+        candidatas = []
         for thumb in thumbnails:
             if not isinstance(thumb, dict):
                 continue
+
             url = thumb.get("url")
-            if url and url not in urls:
+            if not url:
+                continue
+
+            try:
+                width = int(thumb.get("width") or 0)
+            except (TypeError, ValueError):
+                width = 0
+
+            try:
+                height = int(thumb.get("height") or 0)
+            except (TypeError, ValueError):
+                height = 0
+
+            candidatas.append((max(width, height), width, height, url))
+
+        candidatas.sort(reverse=True)
+        for _, _, _, url in candidatas:
+            if url not in urls:
                 urls.append(url)
 
     return urls
@@ -826,19 +831,45 @@ def _extraer_urls_portada(resultado):
 
 def buscar_portada_youtube_music(ytmusic, cancion):
     """
-    Busca la portada en YouTube Music usando título + artistas.
+    Busca la portada real de YouTube Music.
 
-    Se intenta primero un resultado de canción. Si no se obtiene una portada,
-    se intenta con álbumes. La URL final se ajusta para pedir 544x544 cuando
-    YouTube Music lo permite.
+    Prioridad:
+    1. Datos completos del video con get_song(), usando la miniatura de mayor
+       resolución que YouTube Music entregue realmente.
+    2. Resultado de búsqueda exacto de la canción.
+    3. Álbum asociado al resultado.
+
+    No se fabrican URLs w544-h544 a partir de una URL w120-h120.
     """
     titulo = str(cancion.get("titulo") or "").strip()
     artistas = str(cancion.get("artistas") or "").strip()
+    video_id = cancion.get("video_id")
     consulta = " ".join(x for x in (titulo, artistas) if x)
 
     print()
     print(f"Buscando portada en YouTube Music: {consulta}")
 
+    # --------------------------------------------------------
+    # 1. Obtener información completa del video concreto.
+    # --------------------------------------------------------
+    if video_id:
+        try:
+            datos_song = ytmusic.get_song(video_id)
+            urls = _extraer_urls_portada(datos_song)
+            if urls:
+                return urls[0]
+
+            album_song = datos_song.get("album")
+            if isinstance(album_song, dict):
+                urls = _extraer_urls_portada(album_song)
+                if urls:
+                    return urls[0]
+        except Exception as error:
+            print(f"No se pudo obtener get_song() para {video_id}: {error}")
+
+    # --------------------------------------------------------
+    # 2. Buscar la canción en YouTube Music.
+    # --------------------------------------------------------
     consultas = [consulta]
     if titulo:
         consultas.append(titulo)
@@ -846,9 +877,10 @@ def buscar_portada_youtube_music(ytmusic, cancion):
     vistos_consulta = set()
 
     for consulta_actual in consultas:
-        if not consulta_actual or consulta_actual.casefold() in vistos_consulta:
+        clave_consulta = consulta_actual.casefold()
+        if not consulta_actual or clave_consulta in vistos_consulta:
             continue
-        vistos_consulta.add(consulta_actual.casefold())
+        vistos_consulta.add(clave_consulta)
 
         try:
             resultados = ytmusic.search(
@@ -869,31 +901,26 @@ def buscar_portada_youtube_music(ytmusic, cancion):
             if titulo and titulo_resultado.casefold() != titulo.casefold():
                 continue
 
-            video_id = resultado.get("videoId")
-            if cancion.get("video_id") and video_id and video_id != cancion["video_id"]:
-                # Para búsquedas secundarias permitimos no coincidir solo si
-                # el título coincide; de todos modos la portada se valida por
-                # la coincidencia textual del resultado.
-                if consulta_actual != titulo:
-                    continue
+            video_resultado = resultado.get("videoId")
+            if video_id and video_resultado and video_resultado != video_id:
+                continue
 
             urls = _extraer_urls_portada(resultado)
-            if not urls:
-                album = resultado.get("album")
-                if isinstance(album, dict):
-                    urls.extend(_extraer_urls_portada(album))
-
             if urls:
-                # Seleccionamos la mayor miniatura proporcionada por YT Music.
-                url_original = urls[-1]
-                url_final = _quitar_parametros_tamano_ytmusic(url_original)
-                return url_final
+                return urls[0]
 
-    # Segundo intento: búsquedas de álbumes/EP.
+            album = resultado.get("album")
+            if isinstance(album, dict):
+                urls = _extraer_urls_portada(album)
+                if urls:
+                    return urls[0]
+
+    # --------------------------------------------------------
+    # 3. Último intento: buscar el álbum.
+    # --------------------------------------------------------
     for consulta_actual in consultas:
-        if not consulta_actual or consulta_actual.casefold() in vistos_consulta:
-            # No importa si se repite la consulta; aquí cambia el filtro.
-            pass
+        if not consulta_actual:
+            continue
 
         try:
             resultados = ytmusic.search(
@@ -908,10 +935,10 @@ def buscar_portada_youtube_music(ytmusic, cancion):
         for resultado in resultados:
             if not isinstance(resultado, dict):
                 continue
+
             urls = _extraer_urls_portada(resultado)
             if urls:
-                url_original = urls[-1]
-                return _quitar_parametros_tamano_ytmusic(url_original)
+                return urls[0]
 
     return None
 
