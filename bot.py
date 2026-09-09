@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import html
 import unicodedata
@@ -2212,11 +2213,403 @@ def crear_linea_base(
     return estado
 
 
+def obtener_candidatos_reposicion(ytmusic, nombre_artista):
+    """
+    Busca candidatos recientes para una repoblación puntual del canal.
+
+    IMPORTANTE:
+    - No consulta releases.json.
+    - No modifica el estado.
+    - Exige coincidencia exacta del artista monitorizado.
+    - Busca primero "artista + 2026" y luego "artista".
+    """
+
+    consultas = [
+        f"{nombre_artista} 2026",
+        nombre_artista,
+    ]
+
+    candidatos = []
+    videos_vistos = set()
+    artista_normalizado = normalizar_nombre(nombre_artista)
+
+    for consulta in consultas:
+        try:
+            resultados = ytmusic.search(
+                consulta,
+                filter="songs",
+                limit=20,
+                ignore_spelling=True,
+            )
+        except Exception as error:
+            print(
+                f"  ERROR buscando '{consulta}' para repoblación: {error}"
+            )
+            continue
+
+        for posicion, resultado in enumerate(resultados):
+            if not isinstance(resultado, dict):
+                continue
+
+            video_id = resultado.get("videoId")
+            titulo = resultado.get("title")
+
+            if not video_id or not titulo:
+                continue
+
+            if video_id in videos_vistos:
+                continue
+
+            artistas = extraer_artistas_de_objetos(
+                resultado.get("artists")
+            )
+
+            claves_artistas = {
+                normalizar_nombre(nombre)
+                for nombre in artistas
+                if nombre
+            }
+
+            if artista_normalizado not in claves_artistas:
+                continue
+
+            album = resultado.get("album")
+            album_id = None
+            album_titulo = None
+
+            if isinstance(album, dict):
+                album_id = (
+                    album.get("id")
+                    or album.get("browseId")
+                )
+                album_titulo = (
+                    album.get("name")
+                    or album.get("title")
+                )
+
+            anio = str(
+                resultado.get("year")
+                or ""
+            )
+
+            if album_id:
+                try:
+                    datos_album = ytmusic.get_album(album_id)
+                except Exception:
+                    datos_album = None
+
+                if datos_album:
+                    anio = str(
+                        datos_album.get("year")
+                        or anio
+                    )
+                    album_titulo = (
+                        datos_album.get("title")
+                        or album_titulo
+                    )
+
+            cancion = crear_cancion_desde_track(
+                {
+                    "videoId": video_id,
+                    "title": titulo,
+                    "artists": [
+                        {"name": nombre}
+                        for nombre in artistas
+                    ],
+                },
+                nombre_artista,
+                "Single",
+                anio,
+                titulo_lanzamiento=(
+                    album_titulo
+                    or titulo
+                ),
+                album_browse_id=album_id,
+            )
+
+            if not cancion:
+                continue
+
+            cancion["_orden_reposicion"] = posicion
+            cancion["_consulta_reposicion"] = consulta
+
+            candidatos.append(cancion)
+            videos_vistos.add(video_id)
+
+    return candidatos
+
+
+def extraer_fecha_lanzamiento_reposicion(datos, anio_fallback=""):
+    """
+    Intenta obtener una fecha de lanzamiento completa de los metadatos.
+
+    YouTube Music/ytmusicapi no siempre expone día y mes; por eso se
+    prueban varios nombres de campo y, si no existe una fecha completa,
+    se utiliza el 1 de enero del año disponible como respaldo.
+    """
+    if not isinstance(datos, dict):
+        datos = {}
+
+    posibles = (
+        "releaseDate",
+        "release_date",
+        "date",
+        "published",
+        "publishedAt",
+    )
+
+    for campo in posibles:
+        valor = datos.get(campo)
+        if not valor:
+            continue
+
+        texto = str(valor).strip()
+        for formato in (
+            "%Y-%m-%d",
+            "%Y/%m/%d",
+            "%d-%m-%Y",
+            "%d/%m/%Y",
+            "%Y-%m-%dT%H:%M:%S",
+        ):
+            try:
+                return datetime.strptime(texto[:19], formato).date(), True
+            except ValueError:
+                pass
+
+        # ISO con zona horaria u otros formatos compatibles.
+        try:
+            return datetime.fromisoformat(
+                texto.replace("Z", "+00:00")
+            ).date(), True
+        except ValueError:
+            pass
+
+    # Respaldo por año. Esto permite ordenar sin inventar día/mes.
+    try:
+        anio = int(str(anio_fallback).strip())
+        if 1900 <= anio <= 2100:
+            return datetime(anio, 1, 1).date(), False
+    except (TypeError, ValueError):
+        pass
+
+    return datetime(1900, 1, 1).date(), False
+
+
+def seleccionar_ultima_para_reposicion(
+    ytmusic,
+    nombre_artista,
+):
+    """Selecciona la canción más reciente encontrada para un artista."""
+
+    candidatos = obtener_candidatos_reposicion(
+        ytmusic,
+        nombre_artista,
+    )
+
+    if not candidatos:
+        return None
+
+    # Los candidatos ya vienen enriquecidos con el álbum cuando existe.
+    # Volvemos a consultar el álbum para intentar obtener una fecha completa.
+    for cancion in candidatos:
+        fecha, exacta = extraer_fecha_lanzamiento_reposicion(
+            cancion,
+            cancion.get("anio", ""),
+        )
+
+        album_id = cancion.get("album_browse_id")
+        if album_id:
+            try:
+                datos_album = ytmusic.get_album(album_id)
+            except Exception:
+                datos_album = None
+
+            if isinstance(datos_album, dict):
+                fecha_album, exacta_album = extraer_fecha_lanzamiento_reposicion(
+                    datos_album,
+                    datos_album.get("year") or cancion.get("anio", ""),
+                )
+
+                # El álbum es una fuente preferente para la fecha del release.
+                if exacta_album or not exacta:
+                    fecha = fecha_album
+                    exacta = exacta_album
+
+                if datos_album.get("year"):
+                    cancion["anio"] = str(datos_album["year"])
+
+        cancion["_fecha_reposicion"] = fecha.isoformat()
+        cancion["_fecha_reposicion_exacta"] = exacta
+
+    # Más reciente primero para seleccionar la última.
+    candidatos.sort(
+        key=lambda c: (
+            c.get("_fecha_reposicion", "1900-01-01"),
+            c.get("_consulta_reposicion", "") == f"{nombre_artista} 2026",
+            -int(c.get("_orden_reposicion", 999999)),
+        ),
+        reverse=True,
+    )
+
+    return candidatos[0]
+
+
+def repoblar_canal_con_ultimas(
+    ytmusic,
+):
+    """
+    Recuperación puntual del canal vacío.
+
+    Selecciona una canción por artista, ordena las seleccionadas de la
+    más antigua a la más reciente y publica únicamente si consiguió una
+    candidata para TODOS los artistas monitorizados.
+
+    NO lee ni modifica state/releases.json.
+    """
+
+    print()
+    print("=" * 60)
+    print("MODO RECUPERACIÓN CRONOLÓGICA")
+    print("=" * 60)
+    print("1 canción por cada artista")
+    print("Orden: más antigua -> más reciente")
+    print("Estado persistente: NO se utiliza")
+    print("Estado persistente: NO se modifica")
+    print()
+
+    seleccionadas = []
+
+    for numero, artista in enumerate(ARTISTAS, start=1):
+        nombre = artista["nombre"]
+
+        print(
+            f"[{numero}/{len(ARTISTAS)}] "
+            f"Buscando última: {nombre}"
+        )
+
+        cancion = seleccionar_ultima_para_reposicion(
+            ytmusic,
+            nombre,
+        )
+
+        if not cancion:
+            print("  -> NO ENCONTRADA")
+            continue
+
+        fecha = cancion.get("_fecha_reposicion", "1900-01-01")
+        marca = "fecha completa" if cancion.get("_fecha_reposicion_exacta") else "solo año"
+
+        print(
+            f"  -> {cancion['titulo']} | {fecha} ({marca}) | "
+            f"{cancion['video_id']}"
+        )
+        print(f"     Artistas: {cancion['artistas']}")
+        print(f"     Lanzamiento: {cancion['nombre_publicacion']}")
+
+        seleccionadas.append(cancion)
+
+    print()
+    print("=" * 60)
+    print("VERIFICACIÓN PREVIA A PUBLICACIÓN")
+    print("=" * 60)
+
+    if len(seleccionadas) != len(ARTISTAS):
+        print(
+            f"SE DETIENE LA RECUPERACIÓN: se encontraron "
+            f"{len(seleccionadas)}/{len(ARTISTAS)} artistas."
+        )
+        print("No se publicó ninguna canción.")
+        print("state/releases.json: SIN MODIFICAR")
+        print("=" * 60)
+        return
+
+    # Orden global: más antigua -> más reciente.
+    seleccionadas.sort(
+        key=lambda c: (
+            c.get("_fecha_reposicion", "1900-01-01"),
+            c.get("artista_monitorizado", ""),
+            c.get("video_id", ""),
+        )
+    )
+
+    # Seguridad: una sola publicación por video dentro de la recuperación.
+    ids = [c.get("id") for c in seleccionadas]
+    if len(ids) != len(set(ids)):
+        print("SE DETIENE LA RECUPERACIÓN: hay videos duplicados.")
+        print("No se publicó ninguna canción.")
+        print("state/releases.json: SIN MODIFICAR")
+        print("=" * 60)
+        return
+
+    print("ORDEN FINAL DE PUBLICACIÓN:")
+    print()
+
+    for numero, cancion in enumerate(seleccionadas, start=1):
+        marca = "exacta" if cancion.get("_fecha_reposicion_exacta") else "año"
+        print(
+            f"{numero:02d}. {cancion['artista_monitorizado']} -> "
+            f"{cancion['titulo']} | "
+            f"{cancion.get('_fecha_reposicion', 'sin fecha')} ({marca})"
+        )
+
+    print()
+    print("Las 36 candidatas fueron validadas.")
+    print("Comenzando publicación cronológica...")
+    print()
+
+    publicadas = 0
+    errores = 0
+
+    for numero, cancion in enumerate(seleccionadas, start=1):
+        print(f"[RECUPERACIÓN {numero}/{len(seleccionadas)}]")
+        print(f"Fecha: {cancion.get('_fecha_reposicion', 'sin fecha')}")
+        print(f"Artista monitorizado: {cancion['artista_monitorizado']}")
+        print(f"Canción: {cancion['titulo']}")
+        print(f"Video ID: {cancion['video_id']}")
+
+        exito, error = publicar_cancion(ytmusic, cancion)
+
+        if exito:
+            print("PUBLICADA CORRECTAMENTE")
+            publicadas += 1
+        else:
+            print("ERROR AL PUBLICAR")
+            print(error)
+            errores += 1
+            enviar_alerta_error(
+                cancion,
+                "Repoblación cronológica",
+                error,
+            )
+
+        print()
+
+    print("=" * 60)
+    print("RESUMEN DE RECUPERACIÓN CRONOLÓGICA")
+    print("=" * 60)
+    print(f"Seleccionadas: {len(seleccionadas)}")
+    print(f"Publicadas: {publicadas}")
+    print(f"Errores: {errores}")
+    print("state/releases.json: SIN MODIFICAR")
+    print("=" * 60)
+
+
 # ============================================================
 # PROGRAMA PRINCIPAL
 # ============================================================
 
 def main():
+
+    if "--reponer-ultimas" in sys.argv:
+        if not TELEGRAM_BOT_TOKEN:
+            print(
+                "ERROR: No existe el secreto TELEGRAM_BOT_TOKEN."
+            )
+            return
+
+        ytmusic = YTMusic()
+        repoblar_canal_con_ultimas(ytmusic)
+        return
 
     print(
         "=" * 60
