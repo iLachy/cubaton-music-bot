@@ -1,11 +1,12 @@
 from ytmusicapi import YTMusic
 import json
 
-ALBUM_ID = "MPREb_2vLxqqdb9hf"
-VIDEO_ID = "AU_l1Rn_nJI"
+SONG_QUERY = "Contándole Lo Tiro Harryson Hebreo Productions"
+TITLE = "Contándole Lo Tiro"
+ARTISTS_EXPECTED = {"Harryson", "Hebreo Productions"}
 
 print("=" * 72)
-print("PRUEBA SOLO DE LECTURA — ALBUM DE PAL PISO")
+print("PRUEBA SOLO DE LECTURA — CONTÁNDOLE LO TIRO")
 print("=" * 72)
 print("state/releases.json NO será leído ni modificado.")
 print("No se descargan imágenes, no se envía Telegram y no se modifica ningún archivo.")
@@ -23,7 +24,6 @@ def print_thumbnails(label, thumbnails):
     if not thumbnails:
         print("  No contiene thumbnails.")
         return
-
     for i, thumb in enumerate(thumbnails, 1):
         width = thumb.get("width", "?")
         height = thumb.get("height", "?")
@@ -32,136 +32,114 @@ def print_thumbnails(label, thumbnails):
         print(f"      {url}")
 
 
-def print_album_summary(prefix, album):
-    if not isinstance(album, dict):
-        print(f"{prefix}: {album!r}")
-        return
+def artist_names(value):
+    if not isinstance(value, list):
+        return []
+    out = []
+    for a in value:
+        if isinstance(a, dict):
+            if a.get("name"):
+                out.append(a["name"])
+        elif a:
+            out.append(str(a))
+    return out
 
-    print(f"{prefix}")
-    for key in [
-        "browseId", "title", "type", "year", "description",
-        "audioPlaylistId", "channelId", "isExplicit"
-    ]:
-        if key in album:
-            print(f"  {key}: {album.get(key)!r}")
-
-    artists = album.get("artists")
-    if artists is not None:
-        print("  artists:")
-        if isinstance(artists, list):
-            for artist in artists:
-                if isinstance(artist, dict):
-                    print(f"    - {artist.get('name')} (id={artist.get('id')})")
-                else:
-                    print(f"    - {artist}")
-        else:
-            print(f"    {artists!r}")
-
-    print_thumbnails("  THUMBNAILS DEL ALBUM", album.get("thumbnails"))
-
-
-# ---------------------------------------------------------------------------
-# 1) Consulta directa del album.id detectado en el resultado de la canción
-# ---------------------------------------------------------------------------
-print("[1] CONSULTANDO get_album() CON EL ALBUM ID EXACTO...")
-print(f"Album ID: {ALBUM_ID}")
+print("[1] BUSCANDO LA CANCIÓN CON filter='songs'")
+print(f"Consulta: {SONG_QUERY}")
 print()
 
 try:
-    album = ytmusic.get_album(ALBUM_ID)
-except Exception as e:
-    print(f"ERROR en get_album(): {e}")
-    album = None
-
-print()
-print_album_summary("RESULTADO DE get_album()", album)
-
-# Mostrar claves raíz para detectar campos no contemplados arriba.
-if isinstance(album, dict):
-    print("\nCLAVES DISPONIBLES EN get_album():")
-    for key in album.keys():
-        print(f"  - {key}")
-
-    # Guardar solamente en memoria / consola una vista JSON legible.
-    print("\nVISTA COMPLETA DEL OBJETO ALBUM (JSON):")
-    try:
-        print(json.dumps(album, ensure_ascii=False, indent=2))
-    except TypeError:
-        print(repr(album))
-
-    # Revisar tracks y sus posibles thumbnails.
-    tracks = album.get("tracks")
-    print("\nTRACKS DEL ALBUM:")
-    if not tracks:
-        print("  No contiene tracks o la lista está vacía.")
-    else:
-        print(f"  Número de tracks: {len(tracks)}")
-        for i, track in enumerate(tracks, 1):
-            if not isinstance(track, dict):
-                print(f"  [{i}] {track!r}")
-                continue
-            print(f"  [{i}] título={track.get('title')!r} videoId={track.get('videoId')!r}")
-            if track.get("artists"):
-                names = []
-                for a in track.get("artists", []):
-                    if isinstance(a, dict):
-                        names.append(a.get("name"))
-                    else:
-                        names.append(str(a))
-                print(f"      artistas: {', '.join(str(x) for x in names if x)}")
-            print_thumbnails(f"      THUMBNAILS DEL TRACK [{i}]", track.get("thumbnails"))
-
-# ---------------------------------------------------------------------------
-# 2) Búsqueda específica de álbumes para comparar resultados
-# ---------------------------------------------------------------------------
-print("\n" + "=" * 72)
-print("[2] BUSCANDO 'Pal Piso' CON filter='albums'")
-print("=" * 72)
-
-try:
-    album_results = ytmusic.search(
-        "Pal Piso",
-        filter="albums",
+    song_results = ytmusic.search(
+        SONG_QUERY,
+        filter="songs",
         limit=10,
         ignore_spelling=True,
     )
 except Exception as e:
-    print(f"ERROR en search(filter='albums'): {e}")
-    album_results = []
+    print(f"ERROR en search(filter='songs'): {e}")
+    song_results = []
 
-if not album_results:
-    print("No se encontraron resultados de álbumes.")
-else:
-    for i, result in enumerate(album_results, 1):
-        print(f"\nRESULTADO DE ÁLBUM #{i}")
-        print(f"  category: {result.get('category')!r}")
-        print(f"  resultType: {result.get('resultType')!r}")
-        print(f"  title: {result.get('title')!r}")
-        print(f"  browseId: {result.get('browseId')!r}")
-        print(f"  type: {result.get('type')!r}")
-        print(f"  year: {result.get('year')!r}")
+match = None
+for i, result in enumerate(song_results, 1):
+    names = artist_names(result.get("artists"))
+    print(f"RESULTADO DE CANCIÓN #{i}")
+    print(f"  título: {result.get('title')!r}")
+    print(f"  videoId: {result.get('videoId')!r}")
+    print(f"  artistas: {', '.join(names)}")
+    print(f"  album: {result.get('album')!r}")
+    print_thumbnails("  THUMBNAILS DEL RESULTADO", result.get("thumbnails"))
+    print()
 
-        artists = result.get("artists")
-        if artists:
-            names = []
-            for a in artists:
-                if isinstance(a, dict):
-                    names.append(a.get("name"))
-                else:
-                    names.append(str(a))
-            print(f"  artists: {', '.join(str(x) for x in names if x)}")
+    title_ok = TITLE.casefold() in str(result.get("title") or "").casefold()
+    artists_lower = {n.casefold() for n in names}
+    artist_ok = ARTISTS_EXPECTED.issubset(artists_lower)
+    if match is None and title_ok and artist_ok:
+        match = result
 
-        print_thumbnails("  THUMBNAILS DEL RESULTADO", result.get("thumbnails"))
+if match is None:
+    print("NO SE ENCONTRÓ UNA COINCIDENCIA EXACTA DE TÍTULO + ARTISTAS.")
+    print("Se detiene aquí para no consultar un lanzamiento equivocado.")
+    raise SystemExit(0)
 
-        if result.get("browseId") == ALBUM_ID:
-            print("  >>> ESTE RESULTADO COINCIDE EXACTAMENTE CON EL ALBUM ID DE LA CANCIÓN.")
+print("=" * 72)
+print("COINCIDENCIA ENCONTRADA")
+print("=" * 72)
+print(f"Título: {match.get('title')!r}")
+print(f"Video ID: {match.get('videoId')!r}")
+print(f"Artistas: {', '.join(artist_names(match.get('artists')))}")
+print(f"Álbum: {match.get('album')!r}")
+print_thumbnails("THUMBNAILS DE LA CANCIÓN", match.get("thumbnails"))
 
-# ---------------------------------------------------------------------------
-# 3) Conclusión operativa
-# ---------------------------------------------------------------------------
+album_info = match.get("album") or {}
+album_id = album_info.get("id") if isinstance(album_info, dict) else None
+print(f"Album ID detectado: {album_id!r}")
+
+if not album_id:
+    print("La coincidencia no contiene album.id. No se puede hacer la prueba get_album().")
+    raise SystemExit(0)
+
+print("\n[2] CONSULTANDO get_album() CON EL ALBUM ID EXACTO")
+print(f"Album ID: {album_id}")
+print()
+
+try:
+    album = ytmusic.get_album(album_id)
+except Exception as e:
+    print(f"ERROR en get_album(): {e}")
+    album = None
+
+if not isinstance(album, dict):
+    print(f"Respuesta inesperada: {album!r}")
+    raise SystemExit(1)
+
+for key in ["title", "type", "year", "trackCount", "duration", "audioPlaylistId", "isExplicit"]:
+    if key in album:
+        print(f"  {key}: {album.get(key)!r}")
+
+names = artist_names(album.get("artists"))
+print(f"  artists: {', '.join(names)}")
+print_thumbnails("THUMBNAILS DEL ALBUM", album.get("thumbnails"))
+
+tracks = album.get("tracks") or []
+print("\nTRACKS DEL ALBUM")
+print(f"  Número de tracks: {len(tracks)}")
+for i, track in enumerate(tracks, 1):
+    if not isinstance(track, dict):
+        print(f"  [{i}] {track!r}")
+        continue
+    print(f"  [{i}] título={track.get('title')!r} videoId={track.get('videoId')!r}")
+    print(f"      artistas: {', '.join(artist_names(track.get('artists')))}")
+    print_thumbnails(f"      THUMBNAILS DEL TRACK [{i}]", track.get("thumbnails"))
+
+print("\n[3] VISTA JSON DEL ALBUM (SOLO CONSOLA)")
+try:
+    print(json.dumps(album, ensure_ascii=False, indent=2))
+except TypeError:
+    print(repr(album))
+
 print("\n" + "=" * 72)
 print("FIN DE LA PRUEBA")
 print("=" * 72)
-print("Recuerda: state/releases.json NO fue leído ni modificado.")
-print("Lo más importante será comprobar si get_album() devuelve thumbnails distintos")
-print("a los 60x60 / 120x120 que aparecieron en el resultado de la canción.")
+print("state/releases.json NO fue leído ni modificado.")
+print("La comparación clave será: thumbnails de la canción vs thumbnails del album")
+print("y, sobre todo, qué portada de 544x544 devuelve este lanzamiento.")
