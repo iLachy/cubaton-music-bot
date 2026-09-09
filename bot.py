@@ -4,6 +4,7 @@ from io import BytesIO
 
 import requests
 from PIL import Image, ImageOps
+from ytmusicapi import YTMusic
 
 
 # ============================================================
@@ -14,13 +15,9 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = "@Cubaton_Music"
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-# Canción exacta proporcionada por el usuario.
 VIDEO_ID = "AU_l1Rn_nJI"
-YOUTUBE_MUSIC_URL = (
-    f"https://music.youtube.com/watch?v={VIDEO_ID}"
-)
+YOUTUBE_MUSIC_URL = f"https://music.youtube.com/watch?v={VIDEO_ID}"
 
-# Metadata verificada externamente para esta prueba.
 TITULO = "Pal Piso"
 ARTISTAS = "LA R, Musteerifa, Vittorio Di Benedetto"
 TIPO = "Single"
@@ -28,15 +25,84 @@ ANIO = "2026"
 
 
 # ============================================================
-# PREPARAR PORTADA CUADRADA
+# OBTENER PORTADA DE YOUTUBE MUSIC
+# ============================================================
+
+def obtener_portada_ytmusic():
+    """
+    Busca la canción exacta en YouTube Music y obtiene la portada
+    asociada al resultado. No utiliza la miniatura panorámica de
+    i.ytimg.com, que es la causa del formato rectangular.
+    """
+
+    ytmusic = YTMusic()
+
+    consultas = [
+        "Pal Piso Musteerifa LA R Vittorio Di Benedetto",
+        "Pal Piso Musteerifa",
+        "Pal Piso",
+    ]
+
+    for consulta in consultas:
+        print(f"Buscando portada en YouTube Music: {consulta}")
+
+        try:
+            resultados = ytmusic.search(
+                consulta,
+                filter="songs",
+                limit=20,
+                ignore_spelling=True,
+            )
+        except Exception as error:
+            print(f"Error en búsqueda de YouTube Music: {error}")
+            continue
+
+        for resultado in resultados:
+            if resultado.get("videoId") != VIDEO_ID:
+                continue
+
+            thumbnails = resultado.get("thumbnails") or []
+
+            if not thumbnails:
+                continue
+
+            thumbnails = sorted(
+                thumbnails,
+                key=lambda item: (
+                    item.get("width", 0),
+                    item.get("height", 0),
+                ),
+                reverse=True,
+            )
+
+            url = thumbnails[0].get("url")
+
+            if url:
+                print(
+                    "Portada de YouTube Music encontrada: "
+                    f"{url}"
+                )
+                return url
+
+    return None
+
+
+# ============================================================
+# PREPARAR PORTADA
 # ============================================================
 
 def preparar_portada():
-    """Descarga la miniatura y la convierte realmente en 1000x1000."""
+    """Obtiene la portada de YouTube Music y garantiza 1000x1000."""
 
-    thumbnail_url = (
-        f"https://i.ytimg.com/vi/{VIDEO_ID}/hqdefault.jpg"
-    )
+    thumbnail_url = obtener_portada_ytmusic()
+
+    if not thumbnail_url:
+        raise RuntimeError(
+            "No se encontró la portada oficial de YouTube Music "
+            "para Pal Piso (AU_l1Rn_nJI). "
+            "La publicación se cancelará para no enviar una portada "
+            "panorámica."
+        )
 
     respuesta = requests.get(
         thumbnail_url,
@@ -47,6 +113,10 @@ def preparar_portada():
     imagen = Image.open(
         BytesIO(respuesta.content)
     ).convert("RGB")
+
+    print(
+        f"Dimensiones originales de portada: {imagen.size[0]}x{imagen.size[1]}"
+    )
 
     imagen_cuadrada = ImageOps.fit(
         imagen,
@@ -59,6 +129,8 @@ def preparar_portada():
         raise RuntimeError(
             f"La portada no quedó cuadrada: {imagen_cuadrada.size}"
         )
+
+    print("Dimensiones finales de portada: 1000x1000")
 
     buffer = BytesIO()
     imagen_cuadrada.save(
@@ -73,7 +145,7 @@ def preparar_portada():
 
 
 # ============================================================
-# PUBLICAR PRUEBA
+# PUBLICACIÓN DE PRUEBA
 # ============================================================
 
 def publicar_prueba():
@@ -110,7 +182,7 @@ def publicar_prueba():
     print(f"Artistas: {ARTISTAS}")
     print(f"Tipo: {TIPO}")
     print(f"Año: {ANIO}")
-    print("Estado: NO SE MODIFICARÁ")
+    print("Estado: NO SE LEERÁ NI MODIFICARÁ")
     print("=" * 60)
 
     portada = preparar_portada()
