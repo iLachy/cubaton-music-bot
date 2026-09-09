@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 import requests
-from PIL import Image, ImageOps
 from ytmusicapi import YTMusic
 
 
@@ -32,8 +31,6 @@ STATE_FILE = "state/releases.json"
 # Esto permite repetir pruebas sobre la misma canción.
 MODO_PRUEBA = True
 
-# Tamaño final de las portadas enviadas a Telegram.
-TAMANO_PORTADA = 544
 
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
@@ -944,7 +941,12 @@ def buscar_portada_youtube_music(ytmusic, cancion):
 
 
 def descargar_portada_youtube_music(ytmusic, cancion):
-    """Descarga la portada de YouTube Music y la prepara a 544x544."""
+    """
+    Descarga la portada ORIGINAL de YouTube Music sin redimensionarla,
+    recortarla, recomprimirla ni modificar sus dimensiones.
+
+    La imagen que devuelve YouTube Music se envía a Telegram tal cual.
+    """
     url = buscar_portada_youtube_music(ytmusic, cancion)
 
     if not url:
@@ -955,33 +957,24 @@ def descargar_portada_youtube_music(ytmusic, cancion):
     respuesta = requests.get(url, timeout=30)
     respuesta.raise_for_status()
 
-    imagen = Image.open(BytesIO(respuesta.content)).convert("RGB")
-    print(f"Dimensiones originales de portada: {imagen.size[0]}x{imagen.size[1]}")
-
-    imagen_cuadrada = ImageOps.fit(
-        imagen,
-        (TAMANO_PORTADA, TAMANO_PORTADA),
-        method=Image.Resampling.LANCZOS,
-        centering=(0.5, 0.5),
-    )
-
-    if imagen_cuadrada.size != (TAMANO_PORTADA, TAMANO_PORTADA):
-        raise RuntimeError(
-            f"La portada no quedó cuadrada: {imagen_cuadrada.size}"
+    # No se modifica la imagen. Solo inspeccionamos sus dimensiones para
+    # dejar constancia en la consola de lo que realmente entregó YouTube Music.
+    try:
+        from PIL import Image
+        imagen = Image.open(BytesIO(respuesta.content))
+        print(
+            f"Dimensiones originales de portada: "
+            f"{imagen.size[0]}x{imagen.size[1]}"
         )
+        formato = imagen.format or "desconocido"
+        print(f"Formato original de portada: {formato}")
+    except Exception as error:
+        print(f"No se pudieron inspeccionar las dimensiones originales: {error}")
 
-    print(
-        f"Dimensiones finales de portada: "
-        f"{imagen_cuadrada.size[0]}x{imagen_cuadrada.size[1]}"
-    )
+    print("Dimensiones finales de portada: SIN MODIFICAR")
 
-    buffer = BytesIO()
-    imagen_cuadrada.save(
-        buffer,
-        format="JPEG",
-        quality=95,
-        optimize=True,
-    )
+    # Se devuelve exactamente el contenido descargado desde YouTube Music.
+    buffer = BytesIO(respuesta.content)
     buffer.seek(0)
     return buffer
 
@@ -1127,7 +1120,7 @@ def main():
 
     print("⚠️ MODO PRUEBA DIRECTA: PAL PISO")
     print("state/releases.json NO será leído ni modificado.")
-    print(f"Portada final: {TAMANO_PORTADA}x{TAMANO_PORTADA}")
+    print("Portada: ORIGINAL de YouTube Music, sin redimensionar ni recortar")
     print()
 
     if not TELEGRAM_BOT_TOKEN:
