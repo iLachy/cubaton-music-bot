@@ -3,8 +3,10 @@ import json
 import html
 import unicodedata
 from datetime import datetime, timezone
+from io import BytesIO
 
 import requests
+from PIL import Image
 from ytmusicapi import YTMusic
 
 
@@ -758,6 +760,86 @@ def obtener_lanzamientos_fuente_nueva(
     procesar_lista_completa("singles")
     procesar_lista_completa("albums")
 
+    # ------------------------------------------------------------
+    # Fallback para canales que no exponen correctamente las
+    # pestañas de singles/álbumes. En esos casos get_artist()
+    # puede proporcionar una lista de canciones con un browseId.
+    # YouTube Music permite consultar ese browseId con get_playlist().
+    # ------------------------------------------------------------
+    if not canciones:
+        bloque_canciones = datos.get("songs", {})
+        songs_browse_id = bloque_canciones.get("browseId")
+
+        if songs_browse_id:
+            try:
+                playlist = ytmusic.get_playlist(
+                    songs_browse_id,
+                    limit=None,
+                )
+
+                tracks = playlist.get("tracks", [])
+
+                if tracks:
+                    print(
+                        f"Fuente nueva -> Songs fallback: "
+                        f"{len(tracks)} canciones"
+                    )
+
+                for indice, track in enumerate(tracks):
+                    video_id = track.get("videoId")
+                    titulo = track.get("title")
+
+                    if not video_id or not titulo:
+                        continue
+
+                    cancion_id = f"video:{video_id}"
+
+                    if cancion_id in canciones_procesadas:
+                        continue
+
+                    artistas = extraer_artistas_de_objetos(
+                        track.get("artists")
+                    )
+
+                    if not artistas:
+                        artista_track = track.get("artist")
+                        if artista_track:
+                            artistas = [artista_track]
+
+                    if not artistas:
+                        artistas = [nombre]
+
+                    cancion = crear_cancion_desde_track(
+                        {
+                            "videoId": video_id,
+                            "title": titulo,
+                            "artists": [
+                                {"name": artista_nombre}
+                                for artista_nombre in artistas
+                            ],
+                        },
+                        nombre,
+                        "Single",
+                        "",
+                        titulo_lanzamiento=titulo,
+                    )
+
+                    if not cancion:
+                        continue
+
+                    cancion["_canal_origen"] = channel_id
+                    cancion["_orden_origen"] = indice
+                    cancion["_fuente_solo_ultima"] = True
+
+                    canciones.append(cancion)
+                    canciones_procesadas.add(cancion_id)
+
+            except Exception as error:
+                print(
+                    f"ERROR en Songs fallback para {nombre} "
+                    f"({channel_id}): {error}"
+                )
+
     return canciones
 
 
@@ -1433,7 +1515,7 @@ def publicar_cancion(
     caption = (
         f"🎤 <b>{artistas}</b>\n"
         f"<blockquote>🎵 <b>{titulo}</b></blockquote>\n"
-        f"📀 <b>{nombre_publicacion}</b>\n"
+        f"📀 <i>{nombre_publicacion}</i>\n"
         f"🗓 {anio}\n"
         f"\n"
         f"@Cubaton_Music"
