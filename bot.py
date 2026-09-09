@@ -1928,8 +1928,14 @@ def crear_linea_base(
 # PRUEBA CONTROLADA: SELECCIONAR PAL PISO
 # ============================================================
 
-def seleccionar_cancion_prueba(canciones):
-    """Selecciona exclusivamente Pal Piso de Musteerifa para la prueba."""
+def seleccionar_cancion_prueba(canciones, ytmusic):
+    """
+    Selecciona exclusivamente Pal Piso de Musteerifa para la prueba.
+
+    Primero busca entre las canciones obtenidas del canal. Si Pal Piso no
+    aparece allí, hace una búsqueda exacta en YouTube Music para comprobar
+    si el lanzamiento existe pero no está expuesto en la pestaña del canal.
+    """
     objetivo = normalizar_nombre(TITULO_PRUEBA)
 
     candidatos = []
@@ -1945,20 +1951,105 @@ def seleccionar_cancion_prueba(canciones):
         if "musteerifa" not in artistas:
             continue
 
-        # Preferimos explícitamente el segundo canal de Musteerifa,
-        # que es la fuente que estamos probando.
         prioridad = 1 if canal == CANAL_PRUEBA else 0
         candidatos.append((prioridad, cancion))
 
-    if not candidatos:
-        return None
+    if candidatos:
+        candidatos.sort(
+            key=lambda elemento: elemento[0],
+            reverse=True,
+        )
+        return candidatos[0][1]
 
-    candidatos.sort(
-        key=lambda elemento: elemento[0],
-        reverse=True,
-    )
+    # ------------------------------------------------------------
+    # FALLBACK DE PRUEBA: búsqueda global exacta en YouTube Music.
+    # Esto permite comprobar Pal Piso aunque el canal de Musteerifa no
+    # la exponga dentro de "songs", "singles" o "albums".
+    # ------------------------------------------------------------
+    consultas = [
+        "Pal Piso Musteerifa LA R Vittorio Di Benedetto",
+        "Pal Piso Musteerifa",
+        "Pal Piso",
+    ]
 
-    return candidatos[0][1]
+    vistos = set()
+
+    for consulta in consultas:
+        clave_consulta = normalizar_nombre(consulta)
+        if clave_consulta in vistos:
+            continue
+        vistos.add(clave_consulta)
+
+        print(f"Búsqueda de prueba en YouTube Music: {consulta}")
+
+        try:
+            resultados = ytmusic.search(
+                consulta,
+                filter="songs",
+                limit=20,
+                ignore_spelling=True,
+            )
+        except Exception as error:
+            print(
+                f"ERROR en búsqueda de prueba '{consulta}': {error}"
+            )
+            continue
+
+        for resultado in resultados:
+            titulo = str(resultado.get("title", "")).strip()
+            if normalizar_nombre(titulo) != objetivo:
+                continue
+
+            artistas = extraer_artistas_de_objetos(
+                resultado.get("artists")
+            )
+
+            if not artistas:
+                continue
+
+            claves_artistas = {
+                normalizar_nombre(nombre)
+                for nombre in artistas
+            }
+
+            if "musteerifa" not in claves_artistas:
+                continue
+
+            video_id = resultado.get("videoId")
+            if not video_id:
+                continue
+
+            track = dict(resultado)
+            track["videoId"] = video_id
+            track["title"] = titulo
+            track["artists"] = [
+                {"name": nombre}
+                for nombre in artistas
+            ]
+
+            cancion = crear_cancion_desde_track(
+                track,
+                "Musteerifa",
+                "Single",
+                str(resultado.get("year") or ANIO_PRUEBA),
+                titulo_lanzamiento=titulo,
+            )
+
+            if cancion:
+                cancion["_canal_origen"] = CANAL_PRUEBA
+                cancion["_fuente_prueba_search"] = True
+
+                print(
+                    "Pal Piso encontrada mediante búsqueda global de "
+                    "YouTube Music."
+                )
+                print(
+                    f"Video ID encontrado: {video_id}"
+                )
+
+                return cancion
+
+    return None
 
 
 # ============================================================
@@ -2061,7 +2152,7 @@ def main():
             # En modo prueba NO aplicamos el filtro normal de estado:
             # esto permite reprocesar Pal Piso aunque ya figure registrado,
             # sin tocar el resto del catálogo.
-            cancion_prueba = seleccionar_cancion_prueba(canciones)
+            cancion_prueba = seleccionar_cancion_prueba(canciones, ytmusic)
 
             if cancion_prueba:
                 nuevas_canciones.append(cancion_prueba)
@@ -2120,7 +2211,7 @@ def main():
                 vistos_prueba.add(cancion["id"])
                 unicas.append(cancion)
 
-            cancion_prueba = seleccionar_cancion_prueba(unicas)
+            cancion_prueba = seleccionar_cancion_prueba(unicas, ytmusic)
 
             if cancion_prueba is None:
                 nuevas_canciones = []
