@@ -1,4 +1,3 @@
-yt-dlp
-ytmusicapi
 requests
+ytmusicapi
 Pillow
