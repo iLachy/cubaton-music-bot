@@ -36,7 +36,17 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          python bot.py
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "=============================================="
+            echo "MODO MANUAL: REPONER ÚLTIMAS CANCIONES"
+            echo "=============================================="
+            python bot.py --reponer-ultimas
+          else
+            echo "=============================================="
+            echo "MODO AUTOMÁTICO: DETECTOR DE NUEVAS CANCIONES"
+            echo "=============================================="
+            python bot.py
+          fi
 
       - name: Guardar estado de lanzamientos
         run: |
