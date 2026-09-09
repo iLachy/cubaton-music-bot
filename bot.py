@@ -136,6 +136,24 @@ ARTISTAS = [
     {
         "nombre": "Musteerifa",
         "channel_id": "UCiT8PzlQqtPC7lWFh3--4jw",
+        "channel_ids": [
+            "UCiT8PzlQqtPC7lWFh3--4jw",
+            "UCUmbJ10w6Sljv-zIv0iQxNw",
+        ],
+        # El segundo canal se incorpora como nueva fuente.
+        # En su primera integración se publica solamente
+        # su lanzamiento más reciente y el resto queda
+        # registrado como histórico.
+        "channels_solo_ultima_nueva": [
+            "UCUmbJ10w6Sljv-zIv0iQxNw",
+        ],
+    },
+    {
+        "nombre": "Los Dele",
+        "channel_id": "UCe9SuCBefzhTyPCgiMMvcbA",
+        # Artista nuevo: en la primera integración se publica
+        # solamente su lanzamiento más reciente.
+        "solo_ultima_nueva": True,
     },
     {
         "nombre": "Chocolate MC",
@@ -588,6 +606,8 @@ def obtener_lanzamientos_artista(
     """
     Obtiene canciones individuales.
 
+    Un artista puede tener uno o varios canales de YouTube Music.
+
     Single:
         1 canción.
 
@@ -600,220 +620,244 @@ def obtener_lanzamientos_artista(
 
     nombre = artista["nombre"]
 
-    channel_id = artista[
-        "channel_id"
-    ]
+    # Mantiene compatibilidad con la estructura anterior:
+    # si existe "channel_ids", se revisan todos;
+    # si no, se usa el único "channel_id".
+    channel_ids = artista.get("channel_ids")
+
+    if not channel_ids:
+        channel_id = artista.get("channel_id")
+
+        if not channel_id:
+            print(
+                f"ERROR: {nombre} no tiene "
+                f"ningún channel_id configurado."
+            )
+            return []
+
+        channel_ids = [channel_id]
 
     print(
         f"Comprobando: {nombre}"
     )
 
-    try:
-
-        datos = ytmusic.get_artist(
-            channel_id
-        )
-
-    except Exception as error:
-
-        print(
-            f"ERROR obteniendo "
-            f"artista {nombre}: "
-            f"{error}"
-        )
-
-        return []
-
     canciones = []
 
-    # ========================================================
-    # SINGLES
-    # ========================================================
+    # Evita duplicar la misma canción si aparece
+    # en más de un canal del mismo artista.
+    canciones_procesadas = set()
 
-    singles = datos.get(
-        "singles",
-        {}
-    )
-
-    resultados_singles = (
-        singles.get(
-            "results",
-            []
-        )
-    )
-
-    for single in resultados_singles:
-
-        video_id = single.get(
-            "videoId"
-        )
-
-        if not video_id:
-            continue
-
-        titulo = single.get(
-            "title"
-        )
-
-        if not titulo:
-            continue
-
-        artistas = (
-            extraer_artistas_de_objetos(
-                single.get(
-                    "artists"
-                )
-            )
-        )
-
-        if not artistas:
-            artistas = [
-                nombre
-            ]
-
-        anio = single.get(
-            "year",
-            ""
-        )
-
-        cancion = (
-            crear_cancion_desde_track(
-                {
-                    "videoId": video_id,
-                    "title": titulo,
-                    "artists": [
-                        {
-                            "name":
-                            artista_nombre
-                        }
-                        for artista_nombre
-                        in artistas
-                    ],
-                },
-                nombre,
-                "Single",
-                anio,
-                titulo_lanzamiento=titulo,
-            )
-        )
-
-        if cancion:
-            canciones.append(
-                cancion
-            )
-
-    # ========================================================
-    # EP / ÁLBUMES
-    # ========================================================
-
-    albums = datos.get(
-        "albums",
-        {}
-    )
-
-    resultados_albums = (
-        albums.get(
-            "results",
-            []
-        )
-    )
-
-    # Algunas respuestas de YouTube Music pueden contener
-    # el mismo lanzamiento más de una vez con diferencias
-    # menores de capitalización o acentuación en el título.
-    # Se evita llamar a get_album() más de una vez para esos
-    # lanzamientos equivalentes.
+    # Evita llamar a get_album() dos veces para
+    # lanzamientos equivalentes dentro del conjunto
+    # de canales del artista.
     albumes_procesados = set()
 
-    for album in resultados_albums:
-
-        browse_id = album.get(
-            "browseId"
+    canales_solo_ultima = set(
+        artista.get(
+            "channels_solo_ultima_nueva",
+            []
         )
+    )
 
-        if not browse_id:
-            continue
-
-        titulo_album = album.get(
-            "title",
-            "Sin título"
+    artista_es_nuevo = bool(
+        artista.get(
+            "solo_ultima_nueva",
+            False
         )
+    )
 
-        tipo_album = album.get(
-            "type",
-            "Album"
-        )
+    for numero_canal, channel_id in enumerate(
+        channel_ids,
+        start=1
+    ):
 
-        clave_album = (
-            normalizar_titulo_album(
-                titulo_album
-            ),
-            normalizar_nombre(
-                tipo_album
-            ),
-            str(
-                album.get(
-                    "year",
-                    ""
-                )
-                or ""
-            ).strip()
-        )
-
-        if clave_album in albumes_procesados:
+        if len(channel_ids) > 1:
             print(
-                f"Álbum equivalente omitido: "
-                f"{titulo_album}"
+                f"  Canal {numero_canal}/"
+                f"{len(channel_ids)}: "
+                f"{channel_id}"
             )
+
+        try:
+
+            datos = ytmusic.get_artist(
+                channel_id
+            )
+
+        except Exception as error:
+
+            print(
+                f"ERROR obteniendo "
+                f"artista {nombre} "
+                f"(canal {channel_id}): "
+                f"{error}"
+            )
+
+            # Si un canal falla, se continúa con
+            # los demás canales del mismo artista.
             continue
 
-        albumes_procesados.add(
-            clave_album
+        # ========================================================
+        # SINGLES
+        # ========================================================
+
+        singles = datos.get(
+            "singles",
+            {}
         )
 
-        tipo_normalizado = str(
-            tipo_album
-        ).strip()
-
-        if (
-            tipo_normalizado.casefold()
-            == "ep"
-        ):
-
-            tipo_normalizado = "EP"
-
-        elif (
-            tipo_normalizado.casefold()
-            in ("album", "álbum")
-        ):
-
-            tipo_normalizado = "Album"
-
-        anio = album.get(
-            "year",
-            ""
-        )
-
-        datos_album = (
-            obtener_datos_album(
-                ytmusic,
-                browse_id
+        resultados_singles = (
+            singles.get(
+                "results",
+                []
             )
         )
 
-        if not datos_album:
-            continue
+        for single in resultados_singles:
 
-        tipo_datos = (
-            datos_album.get(
-                "type"
+            video_id = single.get(
+                "videoId"
+            )
+
+            if not video_id:
+                continue
+
+            cancion_id = f"video:{video_id}"
+
+            # Si ya fue encontrada en otro canal,
+            # no se vuelve a procesar.
+            if cancion_id in canciones_procesadas:
+                continue
+
+            titulo = single.get(
+                "title"
+            )
+
+            if not titulo:
+                continue
+
+            artistas = (
+                extraer_artistas_de_objetos(
+                    single.get(
+                        "artists"
+                    )
+                )
+            )
+
+            if not artistas:
+                artistas = [
+                    nombre
+                ]
+
+            anio = single.get(
+                "year",
+                ""
+            )
+
+            cancion = (
+                crear_cancion_desde_track(
+                    {
+                        "videoId": video_id,
+                        "title": titulo,
+                        "artists": [
+                            {
+                                "name":
+                                artista_nombre
+                            }
+                            for artista_nombre
+                            in artistas
+                        ],
+                    },
+                    nombre,
+                    "Single",
+                    anio,
+                    titulo_lanzamiento=titulo,
+                )
+            )
+
+            if cancion:
+
+                cancion["_canal_origen"] = channel_id
+                cancion["_orden_origen"] = len(canciones)
+                cancion["_fuente_solo_ultima"] = (
+                    artista_es_nuevo
+                    or channel_id in canales_solo_ultima
+                )
+
+                canciones.append(
+                    cancion
+                )
+
+                canciones_procesadas.add(
+                    cancion_id
+                )
+
+        # ========================================================
+        # EP / ÁLBUMES
+        # ========================================================
+
+        albums = datos.get(
+            "albums",
+            {}
+        )
+
+        resultados_albums = (
+            albums.get(
+                "results",
+                []
             )
         )
 
-        if tipo_datos:
+        for album in resultados_albums:
+
+            browse_id = album.get(
+                "browseId"
+            )
+
+            if not browse_id:
+                continue
+
+            titulo_album = album.get(
+                "title",
+                "Sin título"
+            )
+
+            tipo_album = album.get(
+                "type",
+                "Album"
+            )
+
+            clave_album = (
+                normalizar_titulo_album(
+                    titulo_album
+                ),
+                normalizar_nombre(
+                    tipo_album
+                ),
+                str(
+                    album.get(
+                        "year",
+                        ""
+                    )
+                    or ""
+                ).strip()
+            )
+
+            if clave_album in albumes_procesados:
+
+                print(
+                    f"Álbum equivalente omitido: "
+                    f"{titulo_album}"
+                )
+
+                continue
+
+            albumes_procesados.add(
+                clave_album
+            )
 
             tipo_normalizado = str(
-                tipo_datos
+                tipo_album
             ).strip()
 
             if (
@@ -830,60 +874,212 @@ def obtener_lanzamientos_artista(
 
                 tipo_normalizado = "Album"
 
-        anio_datos = (
-            datos_album.get(
-                "year"
+            anio = album.get(
+                "year",
+                ""
             )
-        )
 
-        if anio_datos:
-            anio = anio_datos
-
-        tracks = (
-            datos_album.get(
-                "tracks",
-                []
+            datos_album = (
+                obtener_datos_album(
+                    ytmusic,
+                    browse_id
+                )
             )
-        )
 
-        if not tracks:
+            if not datos_album:
+                continue
+
+            tipo_datos = (
+                datos_album.get(
+                    "type"
+                )
+            )
+
+            if tipo_datos:
+
+                tipo_normalizado = str(
+                    tipo_datos
+                ).strip()
+
+                if (
+                    tipo_normalizado.casefold()
+                    == "ep"
+                ):
+
+                    tipo_normalizado = "EP"
+
+                elif (
+                    tipo_normalizado.casefold()
+                    in ("album", "álbum")
+                ):
+
+                    tipo_normalizado = "Album"
+
+            anio_datos = (
+                datos_album.get(
+                    "year"
+                )
+            )
+
+            if anio_datos:
+                anio = anio_datos
+
+            tracks = (
+                datos_album.get(
+                    "tracks",
+                    []
+                )
+            )
+
+            if not tracks:
+
+                print(
+                    f"Sin pistas disponibles: "
+                    f"{titulo_album}"
+                )
+
+                continue
 
             print(
-                f"Sin pistas disponibles: "
-                f"{titulo_album}"
+                f"{tipo_normalizado}: "
+                f"{titulo_album} -> "
+                f"{len(tracks)} canciones"
             )
 
-            continue
+            for track in tracks:
 
-        print(
-            f"{tipo_normalizado}: "
-            f"{titulo_album} -> "
-            f"{len(tracks)} canciones"
-        )
-
-        for track in tracks:
-
-            cancion = (
-                crear_cancion_desde_track(
-                    track,
-                    nombre,
-                    tipo_normalizado,
-                    anio,
-                    titulo_lanzamiento=(
-                        titulo_album
-                    ),
-                    album_browse_id=(
-                        browse_id
-                    ),
+                video_id = track.get(
+                    "videoId"
                 )
-            )
 
-            if cancion:
-                canciones.append(
-                    cancion
+                if not video_id:
+                    continue
+
+                cancion_id = f"video:{video_id}"
+
+                if cancion_id in canciones_procesadas:
+                    continue
+
+                cancion = (
+                    crear_cancion_desde_track(
+                        track,
+                        nombre,
+                        tipo_normalizado,
+                        anio,
+                        titulo_lanzamiento=(
+                            titulo_album
+                        ),
+                        album_browse_id=(
+                            browse_id
+                        ),
+                    )
                 )
+
+                if cancion:
+
+                    cancion["_canal_origen"] = channel_id
+                    cancion["_orden_origen"] = len(canciones)
+                    cancion["_fuente_solo_ultima"] = (
+                        artista_es_nuevo
+                        or channel_id in canales_solo_ultima
+                    )
+
+                    canciones.append(
+                        cancion
+                    )
+
+                    canciones_procesadas.add(
+                        cancion_id
+                    )
 
     return canciones
+
+
+def _anio_numerico(cancion):
+    """Convierte el año de una canción a entero para ordenar."""
+    try:
+        return int(str(cancion.get("anio") or "0").strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def seleccionar_ultima_cancion(canciones):
+    """Selecciona el lanzamiento más reciente de una fuente nueva."""
+    if not canciones:
+        return None
+
+    # YouTube Music suele entregar los lanzamientos recientes primero.
+    # El año refuerza la selección cuando el orden entre secciones difiere.
+    mejores = sorted(
+        canciones,
+        key=lambda cancion: (
+            _anio_numerico(cancion),
+            1 if cancion.get("tipo") == "Single" else 0,
+            -int(cancion.get("_orden_origen", 0)),
+        ),
+        reverse=True,
+    )
+
+    return mejores[0]
+
+
+def preparar_nuevas_fuentes(
+    canciones,
+    canciones_publicadas,
+):
+    """
+    Para cada fuente configurada como nueva:
+    - deja solamente su lanzamiento más reciente para publicar;
+    - registra como histórico todo lo anterior, evitando que se publique
+      en ejecuciones posteriores;
+    - cuando pase la primera integración, la fuente vuelve a funcionar
+      normalmente porque lo anterior ya quedó registrado.
+    """
+
+    grupos = {}
+
+    for cancion in canciones:
+        if not cancion.get("_fuente_solo_ultima"):
+            continue
+
+        canal = cancion.get("_canal_origen")
+
+        if not canal:
+            continue
+
+        grupos.setdefault(canal, []).append(cancion)
+
+    ultimas = {}
+
+    for canal, grupo in grupos.items():
+        ultima = seleccionar_ultima_cancion(grupo)
+
+        if not ultima:
+            continue
+
+        ultima_id = ultima["id"]
+        ultimas[canal] = ultima_id
+
+        for cancion in grupo:
+            if cancion["id"] == ultima_id:
+                continue
+
+            canciones_publicadas.add(cancion["id"])
+
+    resultado = []
+
+    for cancion in canciones:
+        if not cancion.get("_fuente_solo_ultima"):
+            resultado.append(cancion)
+            continue
+
+        canal = cancion.get("_canal_origen")
+        ultima_id = ultimas.get(canal)
+
+        if cancion["id"] == ultima_id:
+            resultado.append(cancion)
+
+    return resultado
 
 
 # ============================================================
@@ -1381,6 +1577,15 @@ def main():
                 ytmusic,
                 artista
             )
+        )
+
+        # Para artistas nuevos o canales nuevos configurados con la regla
+        # "solo la última", los lanzamientos anteriores se registran como
+        # históricos y solamente el más reciente queda disponible para
+        # publicación.
+        canciones = preparar_nuevas_fuentes(
+            canciones,
+            canciones_publicadas,
         )
 
         for cancion in canciones:
