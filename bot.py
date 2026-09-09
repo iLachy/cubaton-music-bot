@@ -2213,24 +2213,61 @@ def crear_linea_base(
     return estado
 
 
-def obtener_candidatos_reposicion(ytmusic, nombre_artista):
+def obtener_candidatos_reposicion(ytmusic, artista):
     """
-    Busca candidatos recientes para una repoblación puntual del canal.
+    Obtiene candidatos para una reposición puntual de un artista.
 
-    IMPORTANTE:
-    - No consulta releases.json.
-    - No modifica el estado.
-    - Exige coincidencia exacta del artista monitorizado.
-    - Busca primero "artista + 2026" y luego "artista".
+    Prioridad:
+    1. Las mismas fuentes/canales configurados para el detector normal.
+    2. Búsqueda adicional por nombre como respaldo.
+
+    NO consulta ni modifica state/releases.json.
     """
 
+    nombre_artista = str(artista.get("nombre") or "").strip()
+    candidatos = []
+    videos_vistos = set()
+
+    # ------------------------------------------------------------
+    # 1) FUENTES HABITUALES DEL ARTISTA
+    # ------------------------------------------------------------
+    try:
+        habituales = obtener_lanzamientos_artista(
+            ytmusic,
+            artista,
+        )
+    except Exception as error:
+        habituales = []
+        print(
+            f"  ERROR obteniendo fuentes habituales de {nombre_artista}: {error}"
+        )
+
+    for indice, cancion in enumerate(habituales):
+        if not isinstance(cancion, dict):
+            continue
+
+        video_id = cancion.get("video_id")
+        if not video_id or video_id in videos_vistos:
+            continue
+
+        copia = dict(cancion)
+        copia["_origen_reposicion"] = "fuente_habitual"
+        copia["_orden_reposicion"] = indice
+        candidatos.append(copia)
+        videos_vistos.add(video_id)
+
+    if candidatos:
+        print(
+            f"  Candidatos desde fuentes habituales: {len(candidatos)}"
+        )
+
+    # ------------------------------------------------------------
+    # 2) BÚSQUEDA ADICIONAL POR ARTISTA COMO RESPALDO
+    # ------------------------------------------------------------
     consultas = [
         f"{nombre_artista} 2026",
         nombre_artista,
     ]
-
-    candidatos = []
-    videos_vistos = set()
     artista_normalizado = normalizar_nombre(nombre_artista)
 
     for consulta in consultas:
@@ -2243,7 +2280,7 @@ def obtener_candidatos_reposicion(ytmusic, nombre_artista):
             )
         except Exception as error:
             print(
-                f"  ERROR buscando '{consulta}' para repoblación: {error}"
+                f"  ERROR buscando '{consulta}' para reposición: {error}"
             )
             continue
 
@@ -2253,17 +2290,12 @@ def obtener_candidatos_reposicion(ytmusic, nombre_artista):
 
             video_id = resultado.get("videoId")
             titulo = resultado.get("title")
-
-            if not video_id or not titulo:
-                continue
-
-            if video_id in videos_vistos:
+            if not video_id or not titulo or video_id in videos_vistos:
                 continue
 
             artistas = extraer_artistas_de_objetos(
                 resultado.get("artists")
             )
-
             claves_artistas = {
                 normalizar_nombre(nombre)
                 for nombre in artistas
@@ -2276,21 +2308,12 @@ def obtener_candidatos_reposicion(ytmusic, nombre_artista):
             album = resultado.get("album")
             album_id = None
             album_titulo = None
-
             if isinstance(album, dict):
-                album_id = (
-                    album.get("id")
-                    or album.get("browseId")
-                )
-                album_titulo = (
-                    album.get("name")
-                    or album.get("title")
-                )
+                album_id = album.get("id") or album.get("browseId")
+                album_titulo = album.get("name") or album.get("title")
 
-            anio = str(
-                resultado.get("year")
-                or ""
-            )
+            anio = str(resultado.get("year") or "")
+            datos_album = None
 
             if album_id:
                 try:
@@ -2298,43 +2321,41 @@ def obtener_candidatos_reposicion(ytmusic, nombre_artista):
                 except Exception:
                     datos_album = None
 
-                if datos_album:
-                    anio = str(
-                        datos_album.get("year")
-                        or anio
-                    )
+                if isinstance(datos_album, dict):
+                    anio = str(datos_album.get("year") or anio)
                     album_titulo = (
-                        datos_album.get("title")
-                        or album_titulo
+                        datos_album.get("title") or album_titulo
                     )
 
+            track = {
+                "videoId": video_id,
+                "title": titulo,
+                "artists": [
+                    {"name": nombre}
+                    for nombre in artistas
+                ],
+            }
+
             cancion = crear_cancion_desde_track(
-                {
-                    "videoId": video_id,
-                    "title": titulo,
-                    "artists": [
-                        {"name": nombre}
-                        for nombre in artistas
-                    ],
-                },
+                track,
                 nombre_artista,
                 "Single",
                 anio,
-                titulo_lanzamiento=(
-                    album_titulo
-                    or titulo
-                ),
+                titulo_lanzamiento=(album_titulo or titulo),
                 album_browse_id=album_id,
             )
 
             if not cancion:
                 continue
 
+            cancion["_origen_reposicion"] = "busqueda_artista"
             cancion["_orden_reposicion"] = posicion
             cancion["_consulta_reposicion"] = consulta
-
             candidatos.append(cancion)
             videos_vistos.add(video_id)
+
+    if not candidatos:
+        print("  -> sin candidatos")
 
     return candidatos
 
@@ -2397,13 +2418,14 @@ def extraer_fecha_lanzamiento_reposicion(datos, anio_fallback=""):
 
 def seleccionar_ultima_para_reposicion(
     ytmusic,
-    nombre_artista,
+    artista,
 ):
     """Selecciona la canción más reciente encontrada para un artista."""
 
+    nombre_artista = str(artista.get("nombre") or "").strip()
     candidatos = obtener_candidatos_reposicion(
         ytmusic,
-        nombre_artista,
+        artista,
     )
 
     if not candidatos:
@@ -2489,7 +2511,7 @@ def repoblar_canal_con_ultimas(
 
         cancion = seleccionar_ultima_para_reposicion(
             ytmusic,
-            nombre,
+            artista,
         )
 
         if not cancion:
@@ -2513,15 +2535,26 @@ def repoblar_canal_con_ultimas(
     print("VERIFICACIÓN PREVIA A PUBLICACIÓN")
     print("=" * 60)
 
-    if len(seleccionadas) != len(ARTISTAS):
-        print(
-            f"SE DETIENE LA RECUPERACIÓN: se encontraron "
-            f"{len(seleccionadas)}/{len(ARTISTAS)} artistas."
-        )
+    if not seleccionadas:
+        print("NO SE ENCONTRARON CANDIDATAS PARA NINGÚN ARTISTA.")
         print("No se publicó ninguna canción.")
         print("state/releases.json: SIN MODIFICAR")
         print("=" * 60)
         return
+
+    if len(seleccionadas) < len(ARTISTAS):
+        faltantes = [
+            artista["nombre"]
+            for artista in ARTISTAS
+            if artista["nombre"] not in {
+                x.get("artista_monitorizado") for x in seleccionadas
+            }
+        ]
+        print(
+            f"AVISO: se encontraron {len(seleccionadas)}/{len(ARTISTAS)} artistas."
+        )
+        print("Se publicarán los encontrados y se omitirán únicamente los faltantes:")
+        print(", ".join(faltantes) if faltantes else "(ninguno)")
 
     # Orden global: más antigua -> más reciente.
     seleccionadas.sort(
@@ -2553,7 +2586,7 @@ def repoblar_canal_con_ultimas(
         )
 
     print()
-    print("Las 36 candidatas fueron validadas.")
+    print(f"{len(seleccionadas)} candidatas fueron validadas.")
     print("Comenzando publicación cronológica...")
     print()
 
