@@ -1,4 +1,5 @@
 import os
+import json
 from ytmusicapi import YTMusic
 
 VIDEO_ID = "AU_l1Rn_nJI"
@@ -116,6 +117,18 @@ def main():
             resultado_album = resultado.get("album")
             if isinstance(resultado_album, dict):
                 imprimir_thumbnails(f"THUMBNAILS DEL ÁLBUM DEL RESULTADO #{indice}", resultado_album)
+
+            print()
+            print("CAMPOS COMPLETOS DEL RESULTADO COINCIDENTE")
+            print("-" * 72)
+            for clave, valor in resultado.items():
+                if clave == "thumbnails":
+                    continue
+                try:
+                    valor_mostrable = json.dumps(valor, ensure_ascii=False, indent=2)
+                except Exception:
+                    valor_mostrable = repr(valor)
+                print(f"\n[{clave}]\n{valor_mostrable}")
 
     print()
     print("=" * 72)
