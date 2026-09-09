@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 from ytmusicapi import YTMusic
 
 
@@ -601,6 +601,77 @@ def crear_cancion_desde_track(
 # OBTENER CANCIONES DE UN ARTISTA
 # ============================================================
 
+def obtener_anio_para_track(ytmusic, track, titulo, artistas):
+    """Obtiene el año de un track del fallback cuando no viene incluido."""
+
+    anio_directo = track.get("year")
+    if anio_directo:
+        return anio_directo
+
+    album = track.get("album")
+    if isinstance(album, dict):
+        album_id = album.get("id") or album.get("browseId")
+        if album_id:
+            try:
+                datos_album = ytmusic.get_album(album_id)
+                if datos_album and datos_album.get("year"):
+                    return datos_album.get("year")
+            except Exception:
+                pass
+
+    consultas = []
+    nombres = [str(a).strip() for a in artistas if a]
+    if nombres:
+        consultas.append(f"{titulo} {nombres[0]}")
+    consultas.append(str(titulo))
+
+    vistos = set()
+    for consulta in consultas:
+        clave = consulta.casefold()
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+
+        try:
+            resultados = ytmusic.search(
+                consulta,
+                filter="songs",
+                limit=10,
+                ignore_spelling=True,
+            )
+        except Exception:
+            continue
+
+        for resultado in resultados:
+            if str(resultado.get("title", "")).casefold() != str(titulo).casefold():
+                continue
+
+            artistas_resultado = extraer_artistas_de_objetos(
+                resultado.get("artists")
+            )
+
+            if nombres and artistas_resultado:
+                claves_busqueda = {normalizar_nombre(x) for x in nombres}
+                claves_resultado = {normalizar_nombre(x) for x in artistas_resultado}
+                if not (claves_busqueda & claves_resultado):
+                    continue
+
+            album_resultado = resultado.get("album")
+            album_id = None
+            if isinstance(album_resultado, dict):
+                album_id = album_resultado.get("id") or album_resultado.get("browseId")
+
+            if album_id:
+                try:
+                    datos_album = ytmusic.get_album(album_id)
+                    if datos_album and datos_album.get("year"):
+                        return datos_album.get("year")
+                except Exception:
+                    pass
+
+    return ""
+
+
 def obtener_lanzamientos_fuente_nueva(
     ytmusic,
     channel_id,
@@ -820,7 +891,7 @@ def obtener_lanzamientos_fuente_nueva(
                         },
                         nombre,
                         "Single",
-                        "",
+                        obtener_anio_para_track(ytmusic, track, titulo, artistas),
                         titulo_lanzamiento=titulo,
                     )
 
@@ -1560,41 +1631,70 @@ def publicar_cancion(
         f"{video_id}/hqdefault.jpg"
     )
 
-    payload = {
+    # ========================================================
+    # DESCARGAR Y RECORTAR MINIATURA A CUADRADO
+    # ========================================================
 
-        "chat_id":
-            TELEGRAM_CHAT_ID,
-
-        "photo":
+    try:
+        imagen_respuesta = requests.get(
             thumbnail_url,
+            timeout=30,
+        )
+        imagen_respuesta.raise_for_status()
 
-        "caption":
-            caption,
+        imagen = Image.open(
+            BytesIO(imagen_respuesta.content)
+        ).convert("RGB")
 
-        "parse_mode":
-            "HTML",
+        imagen_cuadrada = ImageOps.fit(
+            imagen,
+            (800, 800),
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
 
-        "reply_markup":
-            reply_markup,
-    }
+        buffer = BytesIO()
+        imagen_cuadrada.save(
+            buffer,
+            format="JPEG",
+            quality=95,
+            optimize=True,
+        )
+        buffer.seek(0)
+
+    except Exception as error:
+        return (
+            False,
+            f"No se pudo preparar la portada cuadrada: {error}"
+        )
 
     # ========================================================
     # ENVIAR A TELEGRAM
     # ========================================================
 
     try:
-
         respuesta = requests.post(
-
             f"{TELEGRAM_API}/sendPhoto",
-
-            json=payload,
-
-            timeout=30,
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "caption": caption,
+                "parse_mode": "HTML",
+                "reply_markup": json.dumps(
+                    reply_markup,
+                    ensure_ascii=False,
+                ),
+            },
+            files={
+                "photo": (
+                    f"{video_id}.jpg",
+                    buffer,
+                    "image/jpeg",
+                )
+            },
+            timeout=60,
         )
 
         if not respuesta.ok:
-
             return (
                 False,
                 respuesta.text
@@ -1602,10 +1702,7 @@ def publicar_cancion(
 
         datos = respuesta.json()
 
-        if not datos.get(
-            "ok"
-        ):
-
+        if not datos.get("ok"):
             return (
                 False,
                 str(datos)
@@ -1617,7 +1714,6 @@ def publicar_cancion(
         )
 
     except Exception as error:
-
         return (
             False,
             str(error)
