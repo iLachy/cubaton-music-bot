@@ -21,6 +21,15 @@ TELEGRAM_ALERT_CHAT_ID = "@CubatonMusicBot"
 
 STATE_FILE = "state/releases.json"
 
+# ============================================================
+# PRUEBA CONTROLADA: PAL PISO
+# ============================================================
+
+MODO_PRUEBA_PAL_PISO = True
+TITULO_PRUEBA = "Pal Piso"
+CANAL_PRUEBA = "UCUmbJ10w6Sljv-zIv0iQxNw"
+ANIO_PRUEBA = "2026"
+
 TELEGRAM_API = (
     f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 )
@@ -602,25 +611,37 @@ def crear_cancion_desde_track(
 # ============================================================
 
 def obtener_anio_para_track(ytmusic, track, titulo, artistas):
-    """Obtiene el año de un track del fallback cuando no viene incluido."""
+    """Obtiene el año de un track del fallback aunque no venga en el track."""
 
     anio_directo = track.get("year")
     if anio_directo:
-        return anio_directo
+        return str(anio_directo)
 
+    nombres = [str(a).strip() for a in artistas if a]
+    claves_artistas = {normalizar_nombre(x) for x in nombres}
+
+    # 1. Intentar directamente con el álbum asociado al track.
     album = track.get("album")
+    album_ids = []
+    titulo_album = None
+
     if isinstance(album, dict):
+        titulo_album = album.get("name") or album.get("title")
         album_id = album.get("id") or album.get("browseId")
         if album_id:
-            try:
-                datos_album = ytmusic.get_album(album_id)
-                if datos_album and datos_album.get("year"):
-                    return datos_album.get("year")
-            except Exception:
-                pass
+            album_ids.append(album_id)
 
+    for album_id in album_ids:
+        try:
+            datos_album = ytmusic.get_album(album_id)
+            if datos_album and datos_album.get("year"):
+                return str(datos_album.get("year"))
+        except Exception:
+            pass
+
+    # 2. Buscar la canción exacta y utilizar el álbum que YouTube Music
+    #    asocia al resultado. También comprobamos el videoId cuando existe.
     consultas = []
-    nombres = [str(a).strip() for a in artistas if a]
     if nombres:
         consultas.append(f"{titulo} {nombres[0]}")
     consultas.append(str(titulo))
@@ -636,38 +657,93 @@ def obtener_anio_para_track(ytmusic, track, titulo, artistas):
             resultados = ytmusic.search(
                 consulta,
                 filter="songs",
-                limit=10,
+                limit=20,
                 ignore_spelling=True,
             )
         except Exception:
             continue
 
         for resultado in resultados:
-            if str(resultado.get("title", "")).casefold() != str(titulo).casefold():
+            titulo_resultado = str(resultado.get("title", "")).strip()
+            if titulo_resultado.casefold() != str(titulo).casefold():
+                continue
+
+            video_resultado = resultado.get("videoId")
+            video_original = track.get("videoId")
+            if video_original and video_resultado and video_resultado != video_original:
                 continue
 
             artistas_resultado = extraer_artistas_de_objetos(
                 resultado.get("artists")
             )
 
-            if nombres and artistas_resultado:
-                claves_busqueda = {normalizar_nombre(x) for x in nombres}
+            if claves_artistas and artistas_resultado:
                 claves_resultado = {normalizar_nombre(x) for x in artistas_resultado}
-                if not (claves_busqueda & claves_resultado):
+                if not (claves_artistas & claves_resultado):
                     continue
 
             album_resultado = resultado.get("album")
-            album_id = None
+            album_resultado_id = None
             if isinstance(album_resultado, dict):
-                album_id = album_resultado.get("id") or album_resultado.get("browseId")
+                album_resultado_id = (
+                    album_resultado.get("id")
+                    or album_resultado.get("browseId")
+                )
+                if not titulo_album:
+                    titulo_album = (
+                        album_resultado.get("name")
+                        or album_resultado.get("title")
+                    )
 
-            if album_id:
+            if album_resultado_id and album_resultado_id not in album_ids:
+                album_ids.append(album_resultado_id)
+
+            for album_id in album_ids:
                 try:
                     datos_album = ytmusic.get_album(album_id)
                     if datos_album and datos_album.get("year"):
-                        return datos_album.get("year")
+                        return str(datos_album.get("year"))
                 except Exception:
                     pass
+
+    # 3. Último intento: buscar el álbum/single por su título.
+    consultas_album = []
+    if titulo_album:
+        consultas_album.append(titulo_album)
+    consultas_album.append(str(titulo))
+
+    vistos_album = set()
+    for consulta in consultas_album:
+        clave = consulta.casefold()
+        if clave in vistos_album:
+            continue
+        vistos_album.add(clave)
+
+        try:
+            resultados = ytmusic.search(
+                consulta,
+                filter="albums",
+                limit=20,
+                ignore_spelling=True,
+            )
+        except Exception:
+            continue
+
+        for resultado in resultados:
+            titulo_resultado = str(resultado.get("title", "")).strip()
+            if titulo_album and titulo_resultado.casefold() != str(titulo_album).casefold():
+                continue
+
+            album_id = resultado.get("browseId") or resultado.get("albumId")
+            if not album_id:
+                continue
+
+            try:
+                datos_album = ytmusic.get_album(album_id)
+                if datos_album and datos_album.get("year"):
+                    return str(datos_album.get("year"))
+            except Exception:
+                pass
 
     return ""
 
@@ -880,15 +956,16 @@ def obtener_lanzamientos_fuente_nueva(
                     if not artistas:
                         artistas = [nombre]
 
+                    track_para_cancion = dict(track)
+                    track_para_cancion["videoId"] = video_id
+                    track_para_cancion["title"] = titulo
+                    track_para_cancion["artists"] = [
+                        {"name": artista_nombre}
+                        for artista_nombre in artistas
+                    ]
+
                     cancion = crear_cancion_desde_track(
-                        {
-                            "videoId": video_id,
-                            "title": titulo,
-                            "artists": [
-                                {"name": artista_nombre}
-                                for artista_nombre in artistas
-                            ],
-                        },
+                        track_para_cancion,
                         nombre,
                         "Single",
                         obtener_anio_para_track(ytmusic, track, titulo, artistas),
@@ -1648,10 +1725,18 @@ def publicar_cancion(
 
         imagen_cuadrada = ImageOps.fit(
             imagen,
-            (800, 800),
+            (1000, 1000),
             method=Image.Resampling.LANCZOS,
             centering=(0.5, 0.5),
         )
+
+        # Verificación explícita: la imagen que se envía a Telegram
+        # siempre debe tener exactamente la misma anchura y altura.
+        if imagen_cuadrada.size != (1000, 1000):
+            return (
+                False,
+                f"La portada no quedó cuadrada: {imagen_cuadrada.size}"
+            )
 
         buffer = BytesIO()
         imagen_cuadrada.save(
@@ -1840,6 +1925,43 @@ def crear_linea_base(
 
 
 # ============================================================
+# PRUEBA CONTROLADA: SELECCIONAR PAL PISO
+# ============================================================
+
+def seleccionar_cancion_prueba(canciones):
+    """Selecciona exclusivamente Pal Piso de Musteerifa para la prueba."""
+    objetivo = normalizar_nombre(TITULO_PRUEBA)
+
+    candidatos = []
+
+    for cancion in canciones:
+        titulo = normalizar_nombre(cancion.get("titulo", ""))
+        artistas = normalizar_nombre(cancion.get("artistas", ""))
+        canal = cancion.get("_canal_origen", "")
+
+        if titulo != objetivo:
+            continue
+
+        if "musteerifa" not in artistas:
+            continue
+
+        # Preferimos explícitamente el segundo canal de Musteerifa,
+        # que es la fuente que estamos probando.
+        prioridad = 1 if canal == CANAL_PRUEBA else 0
+        candidatos.append((prioridad, cancion))
+
+    if not candidatos:
+        return None
+
+    candidatos.sort(
+        key=lambda elemento: elemento[0],
+        reverse=True,
+    )
+
+    return candidatos[0][1]
+
+
+# ============================================================
 # PROGRAMA PRINCIPAL
 # ============================================================
 
@@ -1935,42 +2057,91 @@ def main():
             )
         )
 
-        # Para artistas nuevos o canales nuevos configurados con la regla
-        # "solo la última", los lanzamientos anteriores se registran como
-        # históricos y solamente el más reciente queda disponible para
-        # publicación.
-        canciones = preparar_nuevas_fuentes(
-            canciones,
-            canciones_publicadas,
-        )
+        if MODO_PRUEBA_PAL_PISO:
+            # En modo prueba NO aplicamos el filtro normal de estado:
+            # esto permite reprocesar Pal Piso aunque ya figure registrado,
+            # sin tocar el resto del catálogo.
+            cancion_prueba = seleccionar_cancion_prueba(canciones)
 
-        for cancion in canciones:
+            if cancion_prueba:
+                nuevas_canciones.append(cancion_prueba)
 
-            cancion_id = cancion[
-                "id"
-            ]
-
-            # Ya publicada
-            if (
-                cancion_id
-                in canciones_publicadas
-            ):
-                continue
-
-            # Duplicada en esta ejecución
-            if (
-                cancion_id
-                in detectadas_en_esta_ejecucion
-            ):
-                continue
-
-            detectadas_en_esta_ejecucion.add(
-                cancion_id
+        else:
+            # Para artistas nuevos o canales nuevos configurados con la regla
+            # "solo la última", los lanzamientos anteriores se registran como
+            # históricos y solamente el más reciente queda disponible para
+            # publicación.
+            canciones = preparar_nuevas_fuentes(
+                canciones,
+                canciones_publicadas,
             )
 
-            nuevas_canciones.append(
-                cancion
-            )
+            for cancion in canciones:
+
+                cancion_id = cancion[
+                    "id"
+                ]
+
+                # Ya publicada
+                if (
+                    cancion_id
+                    in canciones_publicadas
+                ):
+                    continue
+
+                # Duplicada en esta ejecución
+                if (
+                    cancion_id
+                    in detectadas_en_esta_ejecucion
+                ):
+                    continue
+
+                detectadas_en_esta_ejecucion.add(
+                    cancion_id
+                )
+
+                nuevas_canciones.append(
+                    cancion
+                )
+
+    # ========================================================
+    # PRUEBA PAL PISO: UNA SOLA PUBLICACIÓN
+    # ========================================================
+
+    if MODO_PRUEBA_PAL_PISO:
+        if nuevas_canciones:
+            # Deduplicar por video_id por seguridad.
+            vistos_prueba = set()
+            unicas = []
+
+            for cancion in nuevas_canciones:
+                if cancion["id"] in vistos_prueba:
+                    continue
+                vistos_prueba.add(cancion["id"])
+                unicas.append(cancion)
+
+            cancion_prueba = seleccionar_cancion_prueba(unicas)
+
+            if cancion_prueba is None:
+                nuevas_canciones = []
+            else:
+                nuevas_canciones = [cancion_prueba]
+
+                # En el modo prueba fijamos el año solamente si YouTube
+                # Music no lo proporcionó. El lanzamiento está documentado
+                # como de 2026.
+                if not cancion_prueba.get("anio"):
+                    cancion_prueba["anio"] = ANIO_PRUEBA
+
+                print()
+                print("MODO PRUEBA ACTIVO")
+                print("Canción objetivo: Pal Piso")
+                print("Fuente objetivo: segundo canal de Musteerifa")
+                print(f"Año usado para la prueba: {cancion_prueba['anio']}")
+        else:
+            print()
+            print("MODO PRUEBA ACTIVO")
+            print("No se encontró Pal Piso en la información obtenida de Musteerifa.")
 
     # ========================================================
     # RESULTADO DEL DETECTOR
@@ -2050,16 +2221,22 @@ def main():
                 "CORRECTAMENTE"
             )
 
-            # Solo se registra después
-            # de confirmarse la publicación.
-            canciones_publicadas.add(
-                cancion["id"]
-            )
+            if MODO_PRUEBA_PAL_PISO:
+                print(
+                    "MODO PRUEBA: "
+                    "NO se guardará Pal Piso en state/releases.json."
+                )
+            else:
+                # Solo se registra después
+                # de confirmarse la publicación.
+                canciones_publicadas.add(
+                    cancion["id"]
+                )
 
-            # Guardado inmediato.
-            guardar_estado(
-                estado
-            )
+                # Guardado inmediato.
+                guardar_estado(
+                    estado
+                )
 
             publicadas += 1
 
