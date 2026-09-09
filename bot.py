@@ -1,69 +1,150 @@
-from ytmusicapi import YTMusic
+import os
 import json
+from io import BytesIO
 
-ALBUM_ID = 'MPREb_7qIBsdhyrXs'
-VIDEO_ID = 'CK_t71Wx0qA'
+import requests
+from PIL import Image
+from ytmusicapi import YTMusic
 
-print('\\' + '=' * 70)
-print('PRUEBA SOLO DE LECTURA — ALBUM DE CONTÁNDOLE LO TIRO')
-print('\\' + '=' * 70)
-print()
-print('state/releases.json NO será leído ni modificado.')
-print('No se descargan imágenes, no se envía Telegram y no se modifica ningún archivo.')
-print()
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = "@Cubaton_Music"
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-try:
-    ytmusic = YTMusic()
-except Exception as e:
-    print('ERROR inicializando YTMusic:', repr(e))
-    raise
+VIDEO_ID = "AU_l1Rn_nJI"
+ALBUM_ID = "MPREb_2vLxqqdb9hf"
+
+TITLE = "Pal Piso (feat. El Lápiz De Oro)"
+ARTISTS = "LA R, Musteerifa, Vittorio Di Benedetto"
+YEAR = "2026"
+YTM_URL = f"https://music.youtube.com/watch?v={VIDEO_ID}"
 
 
-def print_thumbnails(items, label):
-    print(label)
-    if not items:
-        print('  No contiene thumbnails.')
+def main():
+    print("=" * 72)
+    print("PRUEBA DE PUBLICACIÓN — PAL PISO POR album.id")
+    print("=" * 72)
+    print()
+    print("state/releases.json NO será leído ni modificado.")
+    print("Se usará EXCLUSIVAMENTE get_album() con el album.id conocido.")
+    print("No se usará get_song() ni search() para obtener la portada.")
+    print("La imagen será enviada a Telegram SIN modificarla.")
+    print()
+
+    if not TELEGRAM_BOT_TOKEN:
+        print("ERROR: No existe el secreto TELEGRAM_BOT_TOKEN.")
         return
-    for i, t in enumerate(items, 1):
-        print(f"  [{i}] {t.get('width')}x{t.get('height')}")
-        print(f"      {t.get('url')}")
 
-print('[1] CONSULTANDO get_album() CON EL ALBUM ID EXACTO...')
-print(f'Album ID: {ALBUM_ID}')
-print()
+    ytmusic = YTMusic()
 
-album = ytmusic.get_album(ALBUM_ID)
-print('RESULTADO DE get_album()')
-print(f"  title: {album.get('title')!r}")
-print(f"  type: {album.get('type')!r}")
-print(f"  year: {album.get('year')!r}")
-print(f"  description: {album.get('description')!r}")
-print(f"  audioPlaylistId: {album.get('audioPlaylistId')!r}")
-print(f"  isExplicit: {album.get('isExplicit')!r}")
+    print("[1] CONSULTANDO get_album() DIRECTAMENTE")
+    print(f"Album ID: {ALBUM_ID}")
+    album = ytmusic.get_album(ALBUM_ID)
 
-artists = album.get('artists') or []
-print('  artists:')
-for a in artists:
-    print(f"    - {a.get('name')} (id={a.get('id')})")
+    if not isinstance(album, dict):
+        print("ERROR: get_album() no devolvió un objeto válido.")
+        return
 
-print_thumbnails(album.get('thumbnails'), 'THUMBNAILS DEL ALBUM')
+    print(f"Título devuelto: {album.get('title')!r}")
+    print(f"Tipo: {album.get('type')!r}")
+    print(f"Año: {album.get('year')!r}")
 
-print()
-print('VISTA COMPLETA DEL OBJETO ALBUM (JSON):')
-print(json.dumps(album, ensure_ascii=False, indent=2))
+    thumbnails = album.get("thumbnails") or []
+    if not thumbnails:
+        print("ERROR: El álbum no contiene thumbnails.")
+        return
 
-tracks = album.get('tracks') or []
-print()
-print('TRACKS DEL ALBUM:')
-print(f'  Número de tracks: {len(tracks)}')
-for i, track in enumerate(tracks, 1):
-    print(f"  [{i}] título={track.get('title')!r} videoId={track.get('videoId')!r}")
-    print('      artistas:', ', '.join(a.get('name', '') for a in (track.get('artists') or [])))
-    print_thumbnails(track.get('thumbnails'), f'      THUMBNAILS DEL TRACK [{i}]')
+    # Elegir la thumbnail de mayor resolución REAL devuelta por YT Music.
+    candidatas = []
+    for thumb in thumbnails:
+        if not isinstance(thumb, dict) or not thumb.get("url"):
+            continue
+        try:
+            w = int(thumb.get("width") or 0)
+        except (TypeError, ValueError):
+            w = 0
+        try:
+            h = int(thumb.get("height") or 0)
+        except (TypeError, ValueError):
+            h = 0
+        candidatas.append((max(w, h), w, h, thumb["url"]))
 
-print()
-print('\\' + '=' * 70)
-print('FIN DE LA PRUEBA')
-print('\\' + '=' * 70)
-print()
-print('Recuerda: state/releases.json NO fue leído ni modificado.')
+    if not candidatas:
+        print("ERROR: No hay thumbnails utilizables.")
+        return
+
+    candidatas.sort(reverse=True)
+    _, width, height, image_url = candidatas[0]
+
+    print()
+    print("[2] PORTADA SELECCIONADA DESDE get_album()")
+    print(f"Resolución declarada: {width}x{height}")
+    print(f"URL: {image_url}")
+    print()
+
+    print("[3] DESCARGANDO ESA MISMA IMAGEN PARA ENVIARLA")
+    response = requests.get(image_url, timeout=30)
+    response.raise_for_status()
+
+    image_bytes = response.content
+    image = Image.open(BytesIO(image_bytes))
+    print(f"Dimensiones reales descargadas: {image.width}x{image.height}")
+    print(f"Formato real descargado: {image.format}")
+    print("La imagen NO será redimensionada, recortada ni recomprimida.")
+    print()
+
+    caption = (
+        f"🎤 <b>{ARTISTS}</b>\n"
+        f"<blockquote>🎵 <b>Pal Piso (feat. El Lápiz De Oro)</b></blockquote>\n"
+        f"📀 <i>Single</i>\n"
+        f"🗓 {YEAR}\n\n"
+        f"@Cubaton_Music"
+    )
+
+    reply_markup = {
+        "inline_keyboard": [[
+            {
+                "text": "▶️ Escuchar en YouTube Music",
+                "url": YTM_URL,
+            }
+        ]]
+    }
+
+    print("[4] ENVIANDO A TELEGRAM")
+    print(f"Destino: {TELEGRAM_CHAT_ID}")
+
+    telegram_response = requests.post(
+        f"{TELEGRAM_API}/sendPhoto",
+        data={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "caption": caption,
+            "parse_mode": "HTML",
+            "reply_markup": json.dumps(reply_markup, ensure_ascii=False),
+        },
+        files={
+            "photo": ("pal_piso_album.jpg", image_bytes, "image/jpeg")
+        },
+        timeout=60,
+    )
+
+    if not telegram_response.ok:
+        print("ERROR DE TELEGRAM:")
+        print(telegram_response.text)
+        return
+
+    data = telegram_response.json()
+    if not data.get("ok"):
+        print("TELEGRAM DEVOLVIÓ ERROR:")
+        print(data)
+        return
+
+    print("PUBLICACIÓN ENVIADA CORRECTAMENTE")
+    print()
+    print("=" * 72)
+    print("FIN DE LA PRUEBA")
+    print("state/releases.json NO FUE LEÍDO NI MODIFICADO.")
+    print("La portada utilizada fue exclusivamente la obtenida mediante get_album().")
+    print("=" * 72)
+
+
+if __name__ == "__main__":
+    main()
