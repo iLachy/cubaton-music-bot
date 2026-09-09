@@ -1098,11 +1098,10 @@ def main():
     print("=" * 60)
     print()
 
-    if MODO_PRUEBA:
-        print("⚠️ MODO PRUEBA ACTIVO")
-        print("state/releases.json será leído, pero NO será modificado.")
-        print(f"Portadas finales: {TAMANO_PORTADA}x{TAMANO_PORTADA}")
-        print()
+    print("⚠️ MODO PRUEBA DIRECTA: PAL PISO")
+    print("state/releases.json NO será leído ni modificado.")
+    print(f"Portada final: {TAMANO_PORTADA}x{TAMANO_PORTADA}")
+    print()
 
     if not TELEGRAM_BOT_TOKEN:
         print("ERROR: No existe el secreto TELEGRAM_BOT_TOKEN.")
@@ -1110,89 +1109,56 @@ def main():
 
     ytmusic = YTMusic()
 
-    estado = cargar_estado()
+    cancion_prueba = {
+        "id": "video:AU_l1Rn_nJI",
+        "video_id": "AU_l1Rn_nJI",
+        "titulo": "Pal Piso",
+        "artistas": "LA R, Musteerifa, Vittorio Di Benedetto",
+        "tipo": "Single",
+        "anio": "2026",
+        "nombre_publicacion": "Single",
+        "youtube_url": "https://music.youtube.com/watch?v=AU_l1Rn_nJI",
+        "artista_monitorizado": "Musteerifa",
+        "titulo_lanzamiento": "Pal Piso",
+        "album_browse_id": None,
+    }
 
-    if estado is None:
-        crear_linea_base(ytmusic)
-        return
-
-    canciones_publicadas = estado["canciones"]
-
-    print(f"Canciones registradas actualmente: {len(canciones_publicadas)}")
+    print("Video ID: AU_l1Rn_nJI")
+    print("Título: Pal Piso")
+    print("Artistas: LA R, Musteerifa, Vittorio Di Benedetto")
+    print("Tipo: Single")
+    print("Año: 2026")
+    print("Estado: NO SE LEERÁ NI MODIFICARÁ")
     print()
-
-    nuevas_canciones = []
-    detectadas_en_esta_ejecucion = set()
-
-    for numero, artista in enumerate(ARTISTAS, start=1):
-        print(f"[{numero}/{len(ARTISTAS)}] Comprobando: {artista['nombre']}")
-
-        canciones = obtener_lanzamientos_artista(ytmusic, artista)
-        canciones = preparar_nuevas_fuentes(canciones, canciones_publicadas)
-
-        for cancion in canciones:
-            cancion_id = cancion["id"]
-
-            if cancion_id in canciones_publicadas:
-                continue
-
-            if cancion_id in detectadas_en_esta_ejecucion:
-                continue
-
-            detectadas_en_esta_ejecucion.add(cancion_id)
-            nuevas_canciones.append(cancion)
-
-    print()
-
-    if not nuevas_canciones:
-        print("No se detectaron canciones nuevas.")
-        print("No hay nada que publicar.")
-        return
-
-    print(f"Se detectaron {len(nuevas_canciones)} canción(es) nueva(s).")
-    print()
-
-    publicadas = 0
-    errores = 0
-
-    for numero, cancion in enumerate(nuevas_canciones, start=1):
-        print(f"[PUBLICACIÓN {numero}/{len(nuevas_canciones)}]")
-        print(f"Artista(s): {cancion['artistas']}")
-        print(f"Canción: {cancion['titulo']}")
-        print(f"Lanzamiento: {cancion['nombre_publicacion']}")
-        print(f"Año: {cancion['anio']}")
-
-        exito, error = publicar_cancion(ytmusic, cancion)
-
-        if exito:
-            publicadas += 1
-
-            if MODO_PRUEBA:
-                print("MODO PRUEBA: la canción NO se registrará en state/releases.json.")
-            else:
-                canciones_publicadas.add(cancion["id"])
-                guardar_estado(estado)
-
-        else:
-            print("ERROR AL PUBLICAR")
-            print(error)
-            errores += 1
-            enviar_alerta_error(cancion, "Publicación en Telegram", error)
-
-            # Nunca registrar una canción cuando la publicación falla.
-
-        print()
-
     print("=" * 60)
-    print("RESUMEN DE LA EJECUCIÓN")
-    print(f"Nuevas detectadas: {len(nuevas_canciones)}")
-    print(f"Publicadas: {publicadas}")
-    print(f"Errores: {errores}")
+    print()
 
-    if MODO_PRUEBA:
-        print("state/releases.json: NO FUE MODIFICADO")
+    print("[PRUEBA 1/1]")
+    print(f"Artista(s): {cancion_prueba['artistas']}")
+    print(f"Canción: {cancion_prueba['titulo']}")
+    print(f"Lanzamiento: {cancion_prueba['nombre_publicacion']}")
+    print(f"Año: {cancion_prueba['anio']}")
+    print()
+
+    exito, error = publicar_cancion(ytmusic, cancion_prueba)
+
+    print()
+    print("=" * 60)
+    print("RESUMEN DE LA PRUEBA")
+
+    if exito:
+        print("PUBLICACIÓN ENVIADA CORRECTAMENTE")
+        print("state/releases.json NO FUE LEÍDO NI MODIFICADO.")
+        print("La canción puede volver a probarse en la siguiente ejecución.")
     else:
-        print(f"Total registradas en estado: {len(canciones_publicadas)}")
+        print("ERROR AL PUBLICAR")
+        print(error)
+        print("state/releases.json NO FUE LEÍDO NI MODIFICADO.")
+        enviar_alerta_error(
+            cancion_prueba,
+            "Prueba directa de publicación",
+            error,
+        )
 
     print("=" * 60)
 
