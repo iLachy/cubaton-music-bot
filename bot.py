@@ -19,6 +19,15 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = "@Cubaton_Music"
 TELEGRAM_ALERT_CHAT_ID = "@CubatonMusicBot"
 
+# ============================================================
+# SEGURIDAD DEL FALLBACK
+# ============================================================
+# La búsqueda por artista es complementaria y puede devolver canciones
+# del catálogo que no pertenecen a los listados habituales del canal.
+# Por seguridad queda DESACTIVADA por defecto hasta validarla de forma
+# controlada. Los canales configurados siguen funcionando normalmente.
+ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA = False
+
 STATE_FILE = "state/releases.json"
 
 TELEGRAM_API = (
@@ -2302,18 +2311,20 @@ def main():
         # --------------------------------------------------------
         # FALLBACK DE BÚSQUEDA POR ARTISTA
         # --------------------------------------------------------
-        # Si las fuentes habituales no contienen ninguna canción cuyo
-        # videoId sea todavía desconocido para el estado, hacemos una
-        # búsqueda complementaria por el artista. Esto cubre casos como
-        # Pal Piso, que podía existir en YouTube Music antes de aparecer
-        # en las secciones habituales del canal.
+        # Si las fuentes habituales no contienen novedades, existe un
+        # fallback complementario por artista. Por seguridad permanece
+        # desactivado hasta completar una validación controlada, porque
+        # una búsqueda general puede devolver catálogo histórico.
         ids_habituales_nuevos = any(
             cancion.get("id") not in canciones_publicadas
             for cancion in canciones
             if cancion.get("id")
         )
 
-        if not ids_habituales_nuevos:
+        if (
+            ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA
+            and not ids_habituales_nuevos
+        ):
             canciones_fallback = buscar_lanzamientos_adicionales_por_artista(
                 ytmusic,
                 artista,
@@ -2324,6 +2335,11 @@ def main():
                 },
             )
             canciones.extend(canciones_fallback)
+        elif not ids_habituales_nuevos:
+            print(
+                "  Búsqueda adicional por artista: DESACTIVADA "
+                "(modo seguro)"
+            )
 
         # Para artistas nuevos o canales nuevos configurados con la regla
         # "solo la última", los lanzamientos anteriores se registran como
