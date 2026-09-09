@@ -1,432 +1,226 @@
-import os
-import json
-import html
-import unicodedata
-from io import BytesIO
-
+import re
 import requests
-from PIL import Image
-from ytmusicapi import YTMusic
-
+from bs4 import BeautifulSoup
 
 # ============================================================
-# CONFIGURACIÓN
+# DIAGNÓSTICO INDEPENDIENTE DE QOBUZ
+# NO PUBLICA NADA
+# NO MODIFICA state/releases.json
 # ============================================================
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = "@Cubaton_Music"
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+CANCIONES = [
+    {
+        "titulo": "Pal Piso",
+        "artistas": ["LA R", "Musteerifa", "Vittorio Di Benedetto"],
+        "video_id": "AU_l1Rn_nJI",
+    },
+    {
+        "titulo": "Las Ganas",
+        "artistas": ["Payaso x Ley", "Musteerifa"],
+        "video_id": None,
+    },
+    {
+        "titulo": "LE DI",
+        "artistas": ["Los Dele"],
+        "video_id": None,
+    },
+]
 
-CANCION_OBJETIVO = "Pal Piso"
-ARTISTA_OBJETIVO = "Musteerifa"
-VIDEO_ID_CONOCIDO = "AU_l1Rn_nJI"  # Solo para validar el hallazgo.
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/140.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+}
 
 
-# ============================================================
-# UTILIDADES
-# ============================================================
-
-def escapar(texto):
-    if texto is None:
-        return ""
-    return html.escape(str(texto))
+def normalizar(texto):
+    texto = str(texto or "").casefold()
+    texto = re.sub(r"[^\w\s]", " ", texto, flags=re.UNICODE)
+    return " ".join(texto.split())
 
 
-def normalizar_nombre(nombre):
-    texto = " ".join(str(nombre or "").strip().split()).casefold()
-    texto = unicodedata.normalize("NFKD", texto)
-    return "".join(
-        c for c in texto if not unicodedata.combining(c)
-    )
+def puntuacion_coincidencia(titulo_objetivo, artistas_objetivo, titulo, artistas):
+    objetivo_titulo = normalizar(titulo_objetivo)
+    resultado_titulo = normalizar(titulo)
+
+    score = 0
+
+    if objetivo_titulo and objetivo_titulo == resultado_titulo:
+        score += 60
+    elif objetivo_titulo and (
+        objetivo_titulo in resultado_titulo
+        or resultado_titulo in objetivo_titulo
+    ):
+        score += 35
+
+    resultado_artistas = normalizar(" ".join(artistas))
+
+    for artista in artistas_objetivo:
+        artista_norm = normalizar(artista)
+        if artista_norm and artista_norm in resultado_artistas:
+            score += 20
+
+    return score
 
 
-def extraer_artistas(objetos):
-    resultado = []
-    if not objetos:
-        return resultado
+def extraer_resultados_google(html):
+    soup = BeautifulSoup(html, "html.parser")
+    resultados = []
 
-    for artista in objetos:
-        if not isinstance(artista, dict):
+    for enlace in soup.select("a"):
+        href = enlace.get("href", "")
+        texto = " ".join(enlace.stripped_strings)
+
+        if "qobuz.com" not in href:
             continue
-        nombre = artista.get("name")
-        if nombre:
-            resultado.append(str(nombre).strip())
 
-    return resultado
+        if not texto:
+            continue
 
+        if "/album/" not in href and "/interpreter/" not in href:
+            continue
 
-def formatear_artistas(artistas):
-    nombres = []
+        resultados.append({
+            "texto": texto,
+            "url": href,
+        })
+
     vistos = set()
+    unicos = []
 
-    for artista in artistas:
-        nombre = str(artista or "").strip()
-        if not nombre:
-            continue
-
-        clave = normalizar_nombre(nombre)
+    for resultado in resultados:
+        clave = resultado["url"]
         if clave in vistos:
             continue
-
         vistos.add(clave)
-        nombres.append(nombre)
+        unicos.append(resultado)
 
-    return ", ".join(nombres)
+    return unicos
 
 
-# ============================================================
-# BUSCAR PAL PISO AUTOMÁTICAMENTE
-# ============================================================
+def analizar_pagina_qobuz(url):
+    respuesta = requests.get(
+        url,
+        headers=HEADERS,
+        timeout=30,
+    )
+    respuesta.raise_for_status()
 
-def buscar_pal_piso(ytmusic):
-    consultas = [
-        "Pal Piso",
-        "Pal Piso Musteerifa",
-        "Pal Piso LA R Musteerifa",
-        "Pal Piso LA R Musteerifa Vittorio Di Benedetto",
+    soup = BeautifulSoup(respuesta.text, "html.parser")
+    texto = " ".join(soup.stripped_strings)
+
+    fecha = ""
+    patrones = [
+        r"Released on (\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Released (?:on )?(\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Publicado el (\d{1,2}/\d{1,2}/\d{2,4})",
+        r"publicado el (\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Sarà pubblicato il (\d{1,2}/\d{1,2}/\d{2,4})",
+        r"\b(\d{1,2}/\d{1,2}/\d{4})\b",
     ]
 
-    resultados_unicos = {}
+    for patron in patrones:
+        match = re.search(patron, texto, flags=re.IGNORECASE)
+        if match:
+            fecha = match.group(1)
+            break
 
-    print("=" * 64)
-    print("BÚSQUEDA AUTOMÁTICA DE PAL PISO")
-    print("=" * 64)
+    return {
+        "fecha": fecha,
+        "texto": texto,
+    }
+
+
+def buscar_cancion(cancion):
+    titulo = cancion["titulo"]
+    artistas = cancion["artistas"]
+
+    consultas = [
+        f'site:qobuz.com/album/ "{titulo}" "{artistas[0]}"',
+        f'site:qobuz.com/album/ "{titulo}" ' + " ".join(f'"{a}"' for a in artistas),
+        f'site:qobuz.com "{titulo}" "{artistas[0]}"',
+    ]
+
+    resultados = []
+    vistos = set()
 
     for consulta in consultas:
-        print()
-        print(f"Buscando: {consulta}")
+        print(f"\nConsulta: {consulta}")
 
         try:
-            resultados = ytmusic.search(
-                consulta,
-                filter="songs",
-                limit=20,
-                ignore_spelling=True,
+            respuesta = requests.get(
+                "https://www.google.com/search",
+                params={"q": consulta},
+                headers=HEADERS,
+                timeout=30,
             )
+            respuesta.raise_for_status()
         except Exception as error:
-            print(f"ERROR en la búsqueda: {error}")
+            print(f"ERROR en la consulta: {error}")
             continue
 
-        print(f"Resultados recibidos: {len(resultados)}")
+        encontrados = extraer_resultados_google(respuesta.text)
+        print(f"Resultados Qobuz candidatos: {len(encontrados)}")
 
-        for resultado in resultados:
-            if not isinstance(resultado, dict):
+        for encontrado in encontrados:
+            url = encontrado["url"]
+            if url in vistos:
                 continue
+            vistos.add(url)
+            resultados.append(encontrado)
 
-            video_id = resultado.get("videoId")
-            if not video_id:
-                continue
+    resultados_puntuados = []
 
-            resultados_unicos[video_id] = resultado
-
-    print()
-    print(f"Resultados únicos: {len(resultados_unicos)}")
-
-    candidatos = []
-
-    for resultado in resultados_unicos.values():
-        titulo = str(resultado.get("title") or "").strip()
-        artistas = extraer_artistas(resultado.get("artists"))
-
-        titulo_normalizado = normalizar_nombre(titulo)
-        artista_objetivo_normalizado = normalizar_nombre(ARTISTA_OBJETIVO)
-
-        titulo_coincide = (
-            titulo_normalizado == normalizar_nombre(CANCION_OBJETIVO)
-            or titulo_normalizado.startswith(
-                normalizar_nombre(CANCION_OBJETIVO) + " "
-            )
-            or titulo_normalizado.startswith(
-                normalizar_nombre(CANCION_OBJETIVO) + " ("
-            )
+    for resultado in resultados:
+        texto = resultado["texto"]
+        score = puntuacion_coincidencia(
+            titulo,
+            artistas,
+            texto,
+            [],
         )
+        resultados_puntuados.append((score, resultado))
 
-        tiene_musteerifa = any(
-            normalizar_nombre(artista) == artista_objetivo_normalizado
-            for artista in artistas
-        )
+    resultados_puntuados.sort(key=lambda item: item[0], reverse=True)
 
-        if titulo_coincide and tiene_musteerifa:
-            candidatos.append(resultado)
+    print(f"\nCandidatos únicos finales: {len(resultados_puntuados)}")
 
-    if not candidatos:
-        return None
+    for indice, (score, resultado) in enumerate(resultados_puntuados[:10], start=1):
+        print("\n" + "-" * 70)
+        print(f"CANDIDATO #{indice}")
+        print(f"Puntuación: {score}")
+        print(f"Texto:     {resultado['texto'][:500]}")
+        print(f"URL:       {resultado['url']}")
 
-    # Priorizar el ID que conocemos solo para validar que la búsqueda
-    # automática encontró exactamente el lanzamiento esperado.
-    candidatos.sort(
-        key=lambda r: (
-            1 if r.get("videoId") == VIDEO_ID_CONOCIDO else 0,
-            1 if normalizar_nombre(r.get("title")) == normalizar_nombre(CANCION_OBJETIVO) else 0,
-        ),
-        reverse=True,
-    )
+        try:
+            datos = analizar_pagina_qobuz(resultado["url"])
+            print(f"Fecha detectada: {datos['fecha'] or '(no detectada)'}")
+        except Exception as error:
+            print(f"Error leyendo página Qobuz: {error}")
 
-    encontrado = candidatos[0]
-
-    print()
-    print("=" * 64)
-    print("LANZAMIENTO ENCONTRADO AUTOMÁTICAMENTE")
-    print("=" * 64)
-    print(f"Título:      {encontrado.get('title')}")
-    print(f"Video ID:    {encontrado.get('videoId')}")
-    print(
-        f"Artistas:    "
-        f"{formatear_artistas(extraer_artistas(encontrado.get('artists')))}"
-    )
-
-    album = encontrado.get("album") or {}
-    album_id = album.get("id") or album.get("browseId")
-    print(f"Album ID:    {album_id or '(vacío)'}")
-
-    return encontrado
-
-
-# ============================================================
-# COMPLETAR DATOS MEDIANTE GET_ALBUM
-# ============================================================
-
-def preparar_cancion(ytmusic, resultado):
-    video_id = resultado.get("videoId")
-    titulo = resultado.get("title")
-
-    artistas = extraer_artistas(resultado.get("artists"))
-    if not artistas:
-        artistas = [ARTISTA_OBJETIVO]
-
-    album = resultado.get("album") or {}
-    album_id = album.get("id") or album.get("browseId")
-
-    if not album_id:
-        return None, "El resultado no tiene album.id/browseId."
-
-    try:
-        print()
-        print("=" * 64)
-        print("OBTENIENDO METADATOS COMPLETOS DEL LANZAMIENTO")
-        print("=" * 64)
-        print(f"Album ID: {album_id}")
-
-        datos_album = ytmusic.get_album(album_id)
-
-    except Exception as error:
-        return None, f"No se pudo ejecutar get_album(): {error}"
-
-    if not datos_album:
-        return None, "get_album() no devolvió datos."
-
-    anio = str(datos_album.get("year") or "")
-    tipo = str(datos_album.get("type") or "Single").strip()
-
-    if tipo.casefold() == "ep":
-        tipo = "EP"
-    elif tipo.casefold() in ("album", "álbum"):
-        tipo = "Album"
-    else:
-        tipo = "Single"
-
-    thumbnails = datos_album.get("thumbnails") or []
-    thumbnails_validas = [
-        x for x in thumbnails
-        if isinstance(x, dict) and x.get("url")
-    ]
-
-    if not thumbnails_validas:
-        return None, "El lanzamiento no contiene thumbnails válidas."
-
-    portada = max(
-        thumbnails_validas,
-        key=lambda x: (
-            int(x.get("width") or 0),
-            int(x.get("height") or 0),
-        ),
-    )
-
-    cancion = {
-        "video_id": video_id,
-        "titulo": titulo,
-        "artistas": formatear_artistas(artistas),
-        "tipo": tipo,
-        "anio": anio,
-        "nombre_publicacion": "Single" if tipo == "Single" else str(
-            datos_album.get("title") or album.get("name") or titulo
-        ),
-        "youtube_url": f"https://music.youtube.com/watch?v={video_id}",
-        "album_browse_id": album_id,
-        "thumbnail_url": portada["url"],
-    }
-
-    print(f"Título álbum: {datos_album.get('title')}")
-    print(f"Tipo álbum:   {tipo}")
-    print(f"Año:          {anio or '(vacío)'}")
-    print(
-        f"Portada:      {portada.get('width')}x{portada.get('height')}"
-    )
-    print(f"URL portada:  {portada['url']}")
-
-    return cancion, None
-
-
-# ============================================================
-# PUBLICAR SIN TOCAR STATE
-# ============================================================
-
-def publicar_pal_piso(cancion):
-    titulo = escapar(cancion["titulo"])
-    artistas = escapar(cancion["artistas"])
-    nombre_publicacion = escapar(cancion["nombre_publicacion"])
-    anio = escapar(cancion["anio"])
-
-    caption = (
-        f"🎤 <b>{artistas}</b>\n"
-        f"<blockquote>🎵 <b>{titulo}</b></blockquote>\n"
-        f"📀 <i>{nombre_publicacion}</i>\n"
-        f"🗓 {anio}\n"
-        f"\n"
-        f"@Cubaton_Music"
-    )
-
-    reply_markup = {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "▶️ Escuchar en YouTube Music",
-                    "url": cancion["youtube_url"],
-                }
-            ]
-        ]
-    }
-
-    print()
-    print("=" * 64)
-    print("PREPARANDO PUBLICACIÓN")
-    print("=" * 64)
-    print(caption)
-
-    try:
-        print()
-        print("Descargando portada desde YouTube Music...")
-
-        respuesta_imagen = requests.get(
-            cancion["thumbnail_url"],
-            timeout=30,
-        )
-        respuesta_imagen.raise_for_status()
-
-        buffer = BytesIO(respuesta_imagen.content)
-        buffer.seek(0)
-
-        imagen = Image.open(buffer)
-        print(
-            f"Dimensiones reales de la portada: "
-            f"{imagen.width}x{imagen.height}"
-        )
-        print(f"Formato real: {imagen.format}")
-
-        buffer.seek(0)
-
-    except Exception as error:
-        return False, f"No se pudo preparar la portada: {error}"
-
-    try:
-        print()
-        print("Enviando a Telegram...")
-
-        respuesta = requests.post(
-            f"{TELEGRAM_API}/sendPhoto",
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "caption": caption,
-                "parse_mode": "HTML",
-                "reply_markup": json.dumps(
-                    reply_markup,
-                    ensure_ascii=False,
-                ),
-            },
-            files={
-                "photo": (
-                    f"{cancion['video_id']}.jpg",
-                    buffer,
-                    "image/jpeg",
-                )
-            },
-            timeout=60,
-        )
-
-        if not respuesta.ok:
-            return False, respuesta.text
-
-        datos = respuesta.json()
-
-        if not datos.get("ok"):
-            return False, str(datos)
-
-        return True, None
-
-    except Exception as error:
-        return False, str(error)
-
-
-# ============================================================
-# MAIN DE PRUEBA
-# ============================================================
 
 def main():
-    print("=" * 64)
-    print("PRUEBA CONTROLADA: PAL PISO")
+    print("=" * 70)
+    print("DIAGNÓSTICO INDEPENDIENTE DE QOBUZ")
+    print("NO PUBLICA NADA")
     print("NO MODIFICA state/releases.json")
-    print("PUBLICA SOLAMENTE PAL PISO")
-    print("=" * 64)
+    print("=" * 70)
 
-    if not TELEGRAM_BOT_TOKEN:
-        print("ERROR: No existe TELEGRAM_BOT_TOKEN.")
-        return
+    for cancion in CANCIONES:
+        print("\n" + "=" * 70)
+        print(f"CANCIÓN: {cancion['titulo']}")
+        print("=" * 70)
+        print(f"Artistas: {', '.join(cancion['artistas'])}")
+        if cancion.get("video_id"):
+            print(f"Video ID: {cancion['video_id']}")
+        buscar_cancion(cancion)
 
-    ytmusic = YTMusic()
-
-    resultado = buscar_pal_piso(ytmusic)
-
-    if not resultado:
-        print()
-        print("NO SE ENCONTRÓ PAL PISO AUTOMÁTICAMENTE.")
-        print("No se publicará nada.")
-        print("State modificado: NO")
-        return
-
-    if resultado.get("videoId") == VIDEO_ID_CONOCIDO:
-        print()
-        print("VALIDACIÓN: la búsqueda automática encontró el videoId esperado.")
-    else:
-        print()
-        print(
-            "ADVERTENCIA: se encontró una coincidencia de Pal Piso, "
-            "pero no coincide con el videoId conocido."
-        )
-
-    cancion, error = preparar_cancion(ytmusic, resultado)
-
-    if not cancion:
-        print()
-        print(f"ERROR PREPARANDO LA CANCIÓN: {error}")
-        print("No se publicará nada.")
-        print("State modificado: NO")
-        return
-
-    exito, error = publicar_pal_piso(cancion)
-
-    print()
-    print("=" * 64)
-    print("RESULTADO DE LA PRUEBA")
-    print("=" * 64)
-
-    if exito:
-        print("PUBLICADA CORRECTAMENTE")
-    else:
-        print("ERROR AL PUBLICAR")
-        print(error)
-
-    print("State modificado: NO")
-    print("=" * 64)
+    print("\n" + "=" * 70)
+    print("FIN DEL DIAGNÓSTICO")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
