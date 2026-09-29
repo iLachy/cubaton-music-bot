@@ -35,6 +35,7 @@ jobs:
       - name: Ejecutar Cubaton Music Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
         run: python bot.py
 
       # always(): guarda el estado aunque el bot falle a mitad,
