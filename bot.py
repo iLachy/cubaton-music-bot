@@ -2248,6 +2248,26 @@ def main():
 
         raise SystemExit(1)
 
+    # Verificar que el token sea válido antes de continuar.
+    try:
+        respuesta_token = requests.get(
+            f"{TELEGRAM_API}/getMe",
+            timeout=30,
+        )
+    except Exception as error:
+        print(
+            "ERROR: No se pudo contactar con Telegram "
+            f"para validar el token: {error}"
+        )
+        raise SystemExit(1)
+
+    if not respuesta_token.ok:
+        print(
+            "ERROR: TELEGRAM_BOT_TOKEN no es válido "
+            f"({respuesta_token.status_code})."
+        )
+        raise SystemExit(1)
+
     ytmusic = YTMusic()
 
     # ========================================================
@@ -2529,6 +2549,9 @@ def main():
     print(
         "=" * 60
     )
+
+    if errores > 0:
+        raise SystemExit(1)
 
 
 # ============================================================
