@@ -17,7 +17,7 @@ from ytmusicapi import YTMusic
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 TELEGRAM_CHAT_ID = "@Cubaton_Music"
-TELEGRAM_ALERT_CHAT_ID = "@CubatonMusicBot"
+TELEGRAM_ALERT_CHAT_ID = os.environ.get("TELEGRAM_ALERT_CHAT_ID")
 
 # ============================================================
 # SEGURIDAD DEL FALLBACK
@@ -2246,7 +2246,7 @@ def main():
             "TELEGRAM_BOT_TOKEN."
         )
 
-        return
+        raise SystemExit(1)
 
     ytmusic = YTMusic()
 
