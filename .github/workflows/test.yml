@@ -2,7 +2,8 @@ name: Cubaton Music Bot
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Cada 15 minutos. Si el repo es público puedes bajarlo a */5.
+    - cron: "*/15 * * * *"
 
   workflow_dispatch:
 
@@ -16,30 +17,35 @@ concurrency:
 jobs:
   ejecutar-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Instalar dependencias
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Ejecutar Cubaton Music Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: |
-          python bot.py
+        run: python bot.py
 
+      # always(): guarda el estado aunque el bot falle a mitad,
+      # para no volver a publicar canciones ya enviadas.
       - name: Guardar estado de lanzamientos
+        if: always()
         run: |
+          if [ ! -f state/releases.json ]; then
+            echo "No existe estado que guardar."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add state/releases.json
@@ -47,5 +53,6 @@ jobs:
             echo "No hay cambios en el estado."
           else
             git commit -m "Actualizar estado de lanzamientos"
+            git pull --rebase origin "${{ github.ref_name }}"
             git push
           fi
