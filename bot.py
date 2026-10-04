@@ -28,6 +28,11 @@ TELEGRAM_ALERT_CHAT_ID = os.environ.get("TELEGRAM_ALERT_CHAT_ID")
 # controlada. Los canales configurados siguen funcionando normalmente.
 ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA = False
 
+# No se publican canciones cuyo año sea anterior al año actual menos este
+# valor (1 = solo año actual y anterior). Las descartadas se registran como
+# históricas. Para pruebas con canciones antiguas, súbelo temporalmente.
+MAX_ANTIGUEDAD_ANIOS = 1
+
 STATE_FILE = "state/releases.json"
 
 TELEGRAM_API = (
@@ -241,6 +246,16 @@ def normalizar_titulo_album(titulo):
 # ============================================================
 # ESTADO
 # ============================================================
+
+def clave_cancion(cancion):
+    """
+    Clave estable (artista + título) para detectar la misma canción
+    aunque YouTube Music le asigne IDs distintos (single, álbum, video).
+    """
+    artistas = normalizar_titulo_album(cancion.get("artistas"))
+    titulo = normalizar_titulo_album(cancion.get("titulo"))
+    return f"k:{artistas}|{titulo}"
+
 
 ESTADO_VERSION = 2
 
@@ -2304,6 +2319,8 @@ def main():
     # DETECTAR NUEVAS CANCIONES
     # ========================================================
 
+    tamano_estado_inicial = len(canciones_publicadas)
+
     nuevas_canciones = []
 
     detectadas_en_esta_ejecucion = (
@@ -2361,6 +2378,12 @@ def main():
                 "(modo seguro)"
             )
 
+        # Registra la clave (artista + título) de las canciones ya
+        # conocidas, para reconocerlas si reaparecen con otro ID.
+        for cancion in canciones:
+            if cancion.get("id") in canciones_publicadas:
+                canciones_publicadas.add(clave_cancion(cancion))
+
         # Para artistas nuevos o canales nuevos configurados con la regla
         # "solo la última", los lanzamientos anteriores se registran como
         # históricos y solamente el más reciente queda disponible para
@@ -2390,13 +2413,49 @@ def main():
             ):
                 continue
 
+            clave = clave_cancion(cancion)
+
+            # Misma canción con otro ID (single/álbum/video)
+            if (
+                clave in canciones_publicadas
+                or clave in detectadas_en_esta_ejecucion
+            ):
+                print(
+                    "  Omitida (misma canción con otro ID): "
+                    f"{cancion['titulo']}"
+                )
+                canciones_publicadas.add(cancion_id)
+                continue
+
+            # Demasiado antigua: se registra como histórica
+            anio_numero = _anio_numerico(cancion)
+            anio_limite = (
+                datetime.now(timezone.utc).year
+                - MAX_ANTIGUEDAD_ANIOS
+            )
+            if anio_numero and anio_numero < anio_limite:
+                print(
+                    f"  Omitida (año {anio_numero}, antigua): "
+                    f"{cancion['titulo']}"
+                )
+                canciones_publicadas.add(cancion_id)
+                canciones_publicadas.add(clave)
+                continue
+
             detectadas_en_esta_ejecucion.add(
                 cancion_id
+            )
+            detectadas_en_esta_ejecucion.add(
+                clave
             )
 
             nuevas_canciones.append(
                 cancion
             )
+
+    # Guarda lo registrado como histórico o duplicado en esta ejecución
+    if len(canciones_publicadas) != tamano_estado_inicial:
+        guardar_estado(estado)
 
     # ========================================================
     # RESULTADO DEL DETECTOR
@@ -2481,6 +2540,9 @@ def main():
             # de confirmarse la publicación.
             canciones_publicadas.add(
                 cancion["id"]
+            )
+            canciones_publicadas.add(
+                clave_cancion(cancion)
             )
 
             # Guardado inmediato.
