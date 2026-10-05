@@ -31,7 +31,7 @@ ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA = False
 # No se publican canciones cuyo año sea anterior al año actual menos este
 # valor (1 = solo año actual y anterior). Las descartadas se registran como
 # históricas. Para pruebas con canciones antiguas, súbelo temporalmente.
-MAX_ANTIGUEDAD_ANIOS = 1
+MAX_ANTIGUEDAD_ANIOS = 10
 
 STATE_FILE = "state/releases.json"
 
