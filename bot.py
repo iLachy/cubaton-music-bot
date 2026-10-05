@@ -2025,6 +2025,19 @@ def enviar_preview_audio(cancion):
                 ),
                 "caption": "🎧 Adelanto de 30 s · vía Deezer",
                 "duration": 30,
+                "reply_markup": json.dumps(
+                    {
+                        "inline_keyboard": [
+                            [
+                                {
+                                    "text": "▶️ Escuchar en YouTube Music",
+                                    "url": cancion["youtube_url"],
+                                }
+                            ]
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
             },
             files={
                 "audio": (
