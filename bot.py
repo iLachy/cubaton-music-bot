@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import html
 import unicodedata
@@ -37,6 +38,11 @@ MAX_ANTIGUEDAD_ANIOS = 1
 # canción solo con texto y botón (True) en lugar de reintentar y enviar
 # una alerta en cada ejecución (False).
 PUBLICAR_SIN_PORTADA_SI_FALLA = True
+
+# Envía debajo de cada publicación un adelanto de unos 30 segundos
+# (preview oficial que ofrece Deezer para promoción). Si no se encuentra
+# la canción o falla el envío, simplemente no se envía y no se genera alerta.
+ENVIAR_PREVIEW_AUDIO = True
 
 STATE_FILE = "state/releases.json"
 
@@ -1928,6 +1934,118 @@ def enviar_sin_portada(caption, reply_markup):
         return False, str(error)
 
 
+def _titulo_base(titulo):
+    """Quita (feat. ...), [..] y similares para comparar títulos."""
+    texto = re.sub(r"\s*[\(\[].*?[\)\]]", "", str(titulo or ""))
+    return normalizar_titulo_album(texto)
+
+
+def buscar_preview_deezer(cancion):
+    """
+    Busca en Deezer la canción y devuelve los datos de su preview
+    de 30 segundos, o None si no hay una coincidencia fiable.
+    """
+    artistas_texto = str(cancion.get("artistas") or "").strip()
+    titulo = str(cancion.get("titulo") or "").strip()
+    if not artistas_texto or not titulo:
+        return None
+
+    primer_artista = artistas_texto.split(",")[0].strip()
+    artista_norm = normalizar_titulo_album(primer_artista)
+    titulo_norm = _titulo_base(titulo)
+    titulo_limpio = re.sub(r"\s*[\(\[].*?[\)\]]", "", titulo).strip()
+
+    consultas = [
+        f'artist:"{primer_artista}" track:"{titulo_limpio}"',
+        f"{primer_artista} {titulo_limpio}",
+    ]
+
+    for consulta in consultas:
+        try:
+            respuesta = requests.get(
+                "https://api.deezer.com/search",
+                params={"q": consulta, "limit": 10},
+                timeout=20,
+            )
+            respuesta.raise_for_status()
+            resultados = respuesta.json().get("data") or []
+        except Exception as error:
+            print(f"Preview: no se pudo consultar Deezer: {error}")
+            continue
+
+        for resultado in resultados:
+            if not isinstance(resultado, dict):
+                continue
+            preview = resultado.get("preview")
+            if not preview:
+                continue
+            if _titulo_base(resultado.get("title")) != titulo_norm:
+                continue
+            artista_resultado = normalizar_titulo_album(
+                (resultado.get("artist") or {}).get("name")
+            )
+            if not artista_resultado:
+                continue
+            if (
+                artista_norm == artista_resultado
+                or artista_norm in artista_resultado
+                or artista_resultado in artista_norm
+            ):
+                return {
+                    "url": preview,
+                    "titulo": resultado.get("title") or titulo,
+                    "artista": (resultado.get("artist") or {}).get("name")
+                    or primer_artista,
+                }
+
+    return None
+
+
+def enviar_preview_audio(cancion):
+    """
+    Envía el adelanto de 30 s como audio justo debajo de la publicación.
+    Nunca lanza errores ni afecta al estado: si falla, solo lo informa.
+    """
+    try:
+        preview = buscar_preview_deezer(cancion)
+        if not preview:
+            print("Preview: sin coincidencia en Deezer; no se envía audio.")
+            return False
+
+        audio = requests.get(preview["url"], timeout=30)
+        audio.raise_for_status()
+
+        respuesta = requests.post(
+            f"{TELEGRAM_API}/sendAudio",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "title": str(cancion.get("titulo") or preview["titulo"]),
+                "performer": str(
+                    cancion.get("artistas") or preview["artista"]
+                ),
+                "caption": "🎧 Adelanto de 30 s · vía Deezer",
+                "duration": 30,
+            },
+            files={
+                "audio": (
+                    f"{cancion.get('video_id') or 'preview'}.mp3",
+                    BytesIO(audio.content),
+                    "audio/mpeg",
+                )
+            },
+            timeout=60,
+        )
+        if not respuesta.ok:
+            print(f"Preview: Telegram rechazó el audio: {respuesta.text}")
+            return False
+
+        print("Preview de 30 s enviado correctamente.")
+        return True
+    except Exception as error:
+        print(f"Preview: no se pudo enviar el audio: {error}")
+        return False
+
+
 def publicar_cancion(
     ytmusic,
     cancion
@@ -2610,6 +2728,10 @@ def main():
             )
 
             publicadas += 1
+
+            # Adelanto de audio justo debajo de la publicación.
+            if ENVIAR_PREVIEW_AUDIO:
+                enviar_preview_audio(cancion)
 
         else:
 
