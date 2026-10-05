@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import json
 import html
 import unicodedata
@@ -47,6 +48,10 @@ ENVIAR_PREVIEW_AUDIO = True
 # Botón "Escuchar en YouTube Music" en el post principal. Con False solo
 # aparece en el post cuando no hay preview de audio; el preview lo lleva siempre.
 BOTON_EN_POST = False
+
+# Pausa (segundos) tras cada pareja Post + Audio, para no superar los
+# límites de envío de Telegram al publicar varias canciones seguidas.
+PAUSA_ENTRE_PUBLICACIONES = 2
 
 STATE_FILE = "state/releases.json"
 
@@ -2101,41 +2106,62 @@ def enviar_preview_audio(cancion, preview):
     """
     Envía el preview como audio justo debajo de la publicación.
     Nunca lanza errores ni afecta al estado: si falla, solo lo informa.
+    Si Telegram pide esperar (error 429), espera y reintenta una vez.
     """
-    try:
-        respuesta = requests.post(
-            f"{TELEGRAM_API}/sendAudio",
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "title": str(cancion.get("titulo") or ""),
-                "performer": str(cancion.get("artistas") or ""),
-                "caption": "<b><i>Preview de 30 seg...</i></b>",
-                "parse_mode": "HTML",
-                "duration": 30,
-                "reply_markup": json.dumps(
+    teclado = json.dumps(
+        {
+            "inline_keyboard": [
+                [
                     {
-                        "inline_keyboard": [
-                            [
-                                {
-                                    "text": "▶️ Escuchar en YouTube Music",
-                                    "url": cancion["youtube_url"],
-                                }
-                            ]
-                        ]
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-            files={
-                "audio": (
-                    f"{cancion.get('video_id') or 'preview'}."
-                    f"{preview['extension']}",
-                    BytesIO(preview["bytes"]),
-                    preview["mime"],
-                )
-            },
-            timeout=60,
-        )
+                        "text": "▶️ Escuchar en YouTube Music",
+                        "url": cancion["youtube_url"],
+                    }
+                ]
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+    try:
+        for intento in range(2):
+            respuesta = requests.post(
+                f"{TELEGRAM_API}/sendAudio",
+                data={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "title": str(cancion.get("titulo") or ""),
+                    "performer": str(cancion.get("artistas") or ""),
+                    "caption": "<b><i>Preview de 30 seg...</i></b>",
+                    "parse_mode": "HTML",
+                    "duration": 30,
+                    "reply_markup": teclado,
+                },
+                files={
+                    "audio": (
+                        f"{cancion.get('video_id') or 'preview'}."
+                        f"{preview['extension']}",
+                        BytesIO(preview["bytes"]),
+                        preview["mime"],
+                    )
+                },
+                timeout=60,
+            )
+
+            if respuesta.status_code == 429 and intento == 0:
+                try:
+                    espera = int(
+                        respuesta.json()
+                        .get("parameters", {})
+                        .get("retry_after", 5)
+                    )
+                except Exception:
+                    espera = 5
+                espera = max(1, min(espera, 30))
+                print(f"Preview: Telegram pide esperar {espera} s; reintentando.")
+                time.sleep(espera)
+                continue
+
+            break
+
         if not respuesta.ok:
             print(f"Preview: Telegram rechazó el audio: {respuesta.text}")
             return False
@@ -2848,8 +2874,12 @@ def main():
             publicadas += 1
 
             # Adelanto de audio justo debajo de la publicación.
+            # Orden garantizado: Post -> Audio -> siguiente Post -> Audio.
+            # Todo se envía de forma secuencial, una canción a la vez.
             if preview:
                 enviar_preview_audio(cancion, preview)
+
+            time.sleep(PAUSA_ENTRE_PUBLICACIONES)
 
         else:
 
