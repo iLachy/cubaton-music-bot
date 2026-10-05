@@ -44,6 +44,10 @@ PUBLICAR_SIN_PORTADA_SI_FALLA = True
 # la canción o falla el envío, simplemente no se envía y no se genera alerta.
 ENVIAR_PREVIEW_AUDIO = True
 
+# Botón "Escuchar en YouTube Music" en el post principal. Con False solo
+# aparece en el post cuando no hay preview de audio; el preview lo lleva siempre.
+BOTON_EN_POST = False
+
 STATE_FILE = "state/releases.json"
 
 TELEGRAM_API = (
@@ -1917,9 +1921,15 @@ def enviar_sin_portada(caption, reply_markup):
                 "text": caption,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": "true",
-                "reply_markup": json.dumps(
-                    reply_markup,
-                    ensure_ascii=False,
+                **(
+                    {
+                        "reply_markup": json.dumps(
+                            reply_markup,
+                            ensure_ascii=False,
+                        )
+                    }
+                    if reply_markup
+                    else {}
                 ),
             },
             timeout=60,
@@ -1940,24 +1950,47 @@ def _titulo_base(titulo):
     return normalizar_titulo_album(texto)
 
 
-def buscar_preview_deezer(cancion):
-    """
-    Busca en Deezer la canción y devuelve los datos de su preview
-    de 30 segundos, o None si no hay una coincidencia fiable.
-    """
+def _datos_busqueda_preview(cancion):
+    """Prepara artista y título normalizados para buscar previews."""
     artistas_texto = str(cancion.get("artistas") or "").strip()
     titulo = str(cancion.get("titulo") or "").strip()
     if not artistas_texto or not titulo:
         return None
 
     primer_artista = artistas_texto.split(",")[0].strip()
-    artista_norm = normalizar_titulo_album(primer_artista)
-    titulo_norm = _titulo_base(titulo)
     titulo_limpio = re.sub(r"\s*[\(\[].*?[\)\]]", "", titulo).strip()
+    return {
+        "primer_artista": primer_artista,
+        "titulo_limpio": titulo_limpio,
+        "artista_norm": normalizar_titulo_album(primer_artista),
+        "titulo_norm": _titulo_base(titulo),
+    }
+
+
+def _coincide_preview(titulo_resultado, artista_resultado, datos):
+    """Exige que título y artista coincidan para evitar canciones erróneas."""
+    if _titulo_base(titulo_resultado) != datos["titulo_norm"]:
+        return False
+    artista_res = normalizar_titulo_album(artista_resultado)
+    if not artista_res:
+        return False
+    artista_norm = datos["artista_norm"]
+    return (
+        artista_norm == artista_res
+        or artista_norm in artista_res
+        or artista_res in artista_norm
+    )
+
+
+def buscar_preview_deezer(cancion):
+    """Devuelve la URL del preview de 30 s en Deezer, o None."""
+    datos = _datos_busqueda_preview(cancion)
+    if not datos:
+        return None
 
     consultas = [
-        f'artist:"{primer_artista}" track:"{titulo_limpio}"',
-        f"{primer_artista} {titulo_limpio}",
+        f'artist:"{datos["primer_artista"]}" track:"{datos["titulo_limpio"]}"',
+        f'{datos["primer_artista"]} {datos["titulo_limpio"]}',
     ]
 
     for consulta in consultas:
@@ -1979,51 +2012,105 @@ def buscar_preview_deezer(cancion):
             preview = resultado.get("preview")
             if not preview:
                 continue
-            if _titulo_base(resultado.get("title")) != titulo_norm:
-                continue
-            artista_resultado = normalizar_titulo_album(
-                (resultado.get("artist") or {}).get("name")
-            )
-            if not artista_resultado:
-                continue
-            if (
-                artista_norm == artista_resultado
-                or artista_norm in artista_resultado
-                or artista_resultado in artista_norm
+            if _coincide_preview(
+                resultado.get("title"),
+                (resultado.get("artist") or {}).get("name"),
+                datos,
             ):
-                return {
-                    "url": preview,
-                    "titulo": resultado.get("title") or titulo,
-                    "artista": (resultado.get("artist") or {}).get("name")
-                    or primer_artista,
-                }
+                return {"url": preview}
 
     return None
 
 
-def enviar_preview_audio(cancion):
+def buscar_preview_apple(cancion):
+    """Devuelve la URL del preview de 30 s en Apple Music (iTunes), o None."""
+    datos = _datos_busqueda_preview(cancion)
+    if not datos:
+        return None
+
+    for pais in ("US", "ES"):
+        try:
+            respuesta = requests.get(
+                "https://itunes.apple.com/search",
+                params={
+                    "term": f'{datos["primer_artista"]} {datos["titulo_limpio"]}',
+                    "media": "music",
+                    "entity": "song",
+                    "limit": 15,
+                    "country": pais,
+                },
+                timeout=20,
+            )
+            respuesta.raise_for_status()
+            resultados = respuesta.json().get("results") or []
+        except Exception as error:
+            print(f"Preview: no se pudo consultar Apple Music ({pais}): {error}")
+            continue
+
+        for resultado in resultados:
+            if not isinstance(resultado, dict):
+                continue
+            preview = resultado.get("previewUrl")
+            if not preview:
+                continue
+            if _coincide_preview(
+                resultado.get("trackName"),
+                resultado.get("artistName"),
+                datos,
+            ):
+                return {"url": preview}
+
+    return None
+
+
+def buscar_preview(cancion):
     """
-    Envía el adelanto de 30 s como audio justo debajo de la publicación.
+    Busca el preview en Deezer y, si falla, en Apple Music.
+    Descarga el audio de antemano. Devuelve un diccionario con el
+    contenido o None si no hay preview disponible.
+    """
+    fuentes = (
+        ("Deezer", buscar_preview_deezer, "mp3", "audio/mpeg"),
+        ("Apple Music", buscar_preview_apple, "m4a", "audio/mp4"),
+    )
+
+    for nombre, funcion, extension, mime in fuentes:
+        try:
+            datos = funcion(cancion)
+            if not datos:
+                continue
+            audio = requests.get(datos["url"], timeout=30)
+            audio.raise_for_status()
+            if not audio.content:
+                continue
+            print(f"Preview encontrado en {nombre}.")
+            return {
+                "bytes": audio.content,
+                "extension": extension,
+                "mime": mime,
+                "fuente": nombre,
+            }
+        except Exception as error:
+            print(f"Preview: fallo con {nombre}: {error}")
+
+    print("Preview: sin coincidencia en Deezer ni Apple Music.")
+    return None
+
+
+def enviar_preview_audio(cancion, preview):
+    """
+    Envía el preview como audio justo debajo de la publicación.
     Nunca lanza errores ni afecta al estado: si falla, solo lo informa.
     """
     try:
-        preview = buscar_preview_deezer(cancion)
-        if not preview:
-            print("Preview: sin coincidencia en Deezer; no se envía audio.")
-            return False
-
-        audio = requests.get(preview["url"], timeout=30)
-        audio.raise_for_status()
-
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendAudio",
             data={
                 "chat_id": TELEGRAM_CHAT_ID,
-                "title": str(cancion.get("titulo") or preview["titulo"]),
-                "performer": str(
-                    cancion.get("artistas") or preview["artista"]
-                ),
-                "caption": "🎧 Adelanto de 30 s · vía Deezer",
+                "title": str(cancion.get("titulo") or ""),
+                "performer": str(cancion.get("artistas") or ""),
+                "caption": "<b><i>Preview de 30 seg...</i></b>",
+                "parse_mode": "HTML",
                 "duration": 30,
                 "reply_markup": json.dumps(
                     {
@@ -2041,9 +2128,10 @@ def enviar_preview_audio(cancion):
             },
             files={
                 "audio": (
-                    f"{cancion.get('video_id') or 'preview'}.mp3",
-                    BytesIO(audio.content),
-                    "audio/mpeg",
+                    f"{cancion.get('video_id') or 'preview'}."
+                    f"{preview['extension']}",
+                    BytesIO(preview["bytes"]),
+                    preview["mime"],
                 )
             },
             timeout=60,
@@ -2052,7 +2140,7 @@ def enviar_preview_audio(cancion):
             print(f"Preview: Telegram rechazó el audio: {respuesta.text}")
             return False
 
-        print("Preview de 30 s enviado correctamente.")
+        print(f"Preview de 30 s enviado correctamente ({preview['fuente']}).")
         return True
     except Exception as error:
         print(f"Preview: no se pudo enviar el audio: {error}")
@@ -2061,7 +2149,8 @@ def enviar_preview_audio(cancion):
 
 def publicar_cancion(
     ytmusic,
-    cancion
+    cancion,
+    con_boton=False,
 ):
     """
     Publica una canción.
@@ -2152,7 +2241,10 @@ def publicar_cancion(
                 "AVISO: no se pudo identificar el album.id; "
                 "se publica sin portada."
             )
-            return enviar_sin_portada(caption, reply_markup)
+            return enviar_sin_portada(
+                caption,
+                reply_markup if con_boton else None,
+            )
         return (
             False,
             "No se pudo identificar el album.id de la canción; "
@@ -2257,9 +2349,15 @@ def publicar_cancion(
                 "chat_id": TELEGRAM_CHAT_ID,
                 "caption": caption,
                 "parse_mode": "HTML",
-                "reply_markup": json.dumps(
-                    reply_markup,
-                    ensure_ascii=False,
+                **(
+                    {
+                        "reply_markup": json.dumps(
+                            reply_markup,
+                            ensure_ascii=False,
+                        )
+                    }
+                    if con_boton
+                    else {}
                 ),
             },
             files={
@@ -2712,10 +2810,17 @@ def main():
             f"{cancion['anio']}"
         )
 
+        # El preview se busca antes de publicar: si no hay preview,
+        # el botón de YouTube Music va en el post principal.
+        preview = None
+        if ENVIAR_PREVIEW_AUDIO:
+            preview = buscar_preview(cancion)
+
         exito, error = (
             publicar_cancion(
                 ytmusic,
-                cancion
+                cancion,
+                con_boton=(BOTON_EN_POST or preview is None),
             )
         )
 
@@ -2743,8 +2848,8 @@ def main():
             publicadas += 1
 
             # Adelanto de audio justo debajo de la publicación.
-            if ENVIAR_PREVIEW_AUDIO:
-                enviar_preview_audio(cancion)
+            if preview:
+                enviar_preview_audio(cancion, preview)
 
         else:
 
