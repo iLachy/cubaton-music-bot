@@ -33,6 +33,11 @@ ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA = False
 # históricas. Para pruebas con canciones antiguas, súbelo temporalmente.
 MAX_ANTIGUEDAD_ANIOS = 1
 
+# Si no se logra resolver el álbum para obtener la portada, publicar la
+# canción solo con texto y botón (True) en lugar de reintentar y enviar
+# una alerta en cada ejecución (False).
+PUBLICAR_SIN_PORTADA_SI_FALLA = True
+
 STATE_FILE = "state/releases.json"
 
 TELEGRAM_API = (
@@ -1859,9 +1864,10 @@ def obtener_album_browse_id_para_cancion(ytmusic, cancion):
         for resultado in resultados:
             if not isinstance(resultado, dict):
                 continue
-            if video_id and resultado.get("videoId") != video_id:
-                continue
-            if str(resultado.get("title") or "").strip().casefold() != titulo.casefold():
+            if video_id:
+                if resultado.get("videoId") != video_id:
+                    continue
+            elif str(resultado.get("title") or "").strip().casefold() != titulo.casefold():
                 continue
 
             album = resultado.get("album")
@@ -1872,7 +1878,54 @@ def obtener_album_browse_id_para_cancion(ytmusic, cancion):
             if album_id:
                 return album_id
 
+    if video_id:
+        try:
+            lista = ytmusic.get_watch_playlist(
+                videoId=video_id,
+                limit=1,
+            )
+            for pista in (lista.get("tracks") or []):
+                if pista.get("videoId") != video_id:
+                    continue
+                album = pista.get("album")
+                if isinstance(album, dict):
+                    album_id = album.get("id") or album.get("browseId")
+                    if album_id:
+                        return album_id
+        except Exception as error:
+            print(
+                f"No se pudo resolver album.id con get_watch_playlist "
+                f"para '{titulo}': {error}"
+            )
+
     return None
+
+
+def enviar_sin_portada(caption, reply_markup):
+    """Publica solo texto con el botón cuando no hay portada disponible."""
+    try:
+        respuesta = requests.post(
+            f"{TELEGRAM_API}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": caption,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": "true",
+                "reply_markup": json.dumps(
+                    reply_markup,
+                    ensure_ascii=False,
+                ),
+            },
+            timeout=60,
+        )
+        if not respuesta.ok:
+            return False, respuesta.text
+        datos = respuesta.json()
+        if not datos.get("ok"):
+            return False, str(datos)
+        return True, None
+    except Exception as error:
+        return False, str(error)
 
 
 def publicar_cancion(
@@ -1963,6 +2016,12 @@ def publicar_cancion(
     )
 
     if not album_browse_id:
+        if PUBLICAR_SIN_PORTADA_SI_FALLA:
+            print(
+                "AVISO: no se pudo identificar el album.id; "
+                "se publica sin portada."
+            )
+            return enviar_sin_portada(caption, reply_markup)
         return (
             False,
             "No se pudo identificar el album.id de la canción; "
