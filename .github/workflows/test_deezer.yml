@@ -2,6 +2,11 @@ name: Test Deezer Extractor
 
 on:
   workflow_dispatch:
+    inputs:
+      deezer_url:
+        description: "Enlace de Deezer (track o album)"
+        required: true
+        type: string
 
 jobs:
   test:
@@ -11,25 +16,12 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v6
 
-      - name: Verificar archivos
+      - name: Mostrar archivo del extractor
         run: |
           echo "========================================"
-          echo "ARCHIVOS DEL REPOSITORIO"
+          echo "DEEZE​R EXTRACTOR"
           echo "========================================"
-          ls -la
-
-          echo ""
-          echo "========================================"
-          echo "DEEZE​R_EXTRACTOR.PY"
-          echo "========================================"
-          pwd
-          find . -name "deezer_extractor.py" -type f -print
-
-          echo ""
-          echo "========================================"
-          echo "PRIMERAS 250 LINEAS DEL EXTRACTOR"
-          echo "========================================"
-          sed -n '1,250p' deezer_extractor.py
+          sed -n '1,300p' deezer_extractor.py
 
       - name: Instalar dependencia
         run: |
@@ -38,4 +30,14 @@ jobs:
 
       - name: Ejecutar extractor
         run: |
-          python deezer_extractor.py "https://www.deezer.com/album/1110543002"
+          echo "========================================"
+          echo "URL DE PRUEBA"
+          echo "========================================"
+          echo "${{ inputs.deezer_url }}"
+
+          echo ""
+          echo "========================================"
+          echo "RESULTADO"
+          echo "========================================"
+
+          python deezer_extractor.py "${{ inputs.deezer_url }}"
