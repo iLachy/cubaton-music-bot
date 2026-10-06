@@ -44,6 +44,18 @@ BOTON_EN_POST = False
 # límites de envío de Telegram al publicar varias canciones seguidas.
 PAUSA_ENTRE_PUBLICACIONES = 2
 
+# Busca canciones donde participa un artista monitorizado pero que están en
+# el canal de otro artista (colaboraciones). Solo se consideran las del año
+# actual; las de años anteriores se registran como históricas. La primera vez
+# que se busca para cada artista, todo lo encontrado se registra sin publicar.
+BUSCAR_COLABORACIONES = True
+
+# Detecta lanzamientos nuevos también en Deezer (suelen llegar antes que a
+# YouTube Music). Requiere "deezer_id" en cada artista. La primera vez que se
+# lee cada artista, todo lo existente se registra sin publicar.
+BUSCAR_EN_DEEZER = True
+DEEZER_API = "https://api.deezer.com"
+
 STATE_FILE = "state/releases.json"
 
 TELEGRAM_API = (
@@ -58,110 +70,137 @@ TELEGRAM_API = (
 ARTISTAS = [
     {
         "nombre": "Bebeshito",
+        "deezer_id": "102097852",
         "channel_id": "UCpVfWS-cPOE2sYqsFuuP_Qg",
     },
     {
         "nombre": "Charly & Johayron",
+        "deezer_id": "151878182",
         "channel_id": "UCnwEtOQyXJUUuBhcTgImdfQ",
     },
     {
         "nombre": "Dany Ome",
+        "deezer_id": "51312522",
         "channel_id": "UCJQEm9t4KjDn-I8Fahf4Uqw",
     },
     {
         "nombre": "Wampi",
+        "deezer_id": "53583382",
         "channel_id": "UCbfzw8u1lCwDMv443StJEOw",
     },
     {
         "nombre": "El Taiger",
+        "deezer_id": "10733244",
         "channel_id": "UCoYtt7bGCV5RyUweyQgqQ4A",
     },
     {
         "nombre": "Ja Rulay",
+        "deezer_id": "141683852",
         "channel_id": "UCcaU4COep7mj8kbXwS24JFQ",
     },
     {
         "nombre": "L Kimii",
+        "deezer_id": "166612297",
         "channel_id": "UCMyQosiL8iVUtXPIm1UZJQg",
     },
     {
         "nombre": "El Dray",
+        "deezer_id": "14445985",
         "channel_id": "UC4kpn8y8QXYXmyDn8HJKD8Q",
     },
     {
         "nombre": "Mauro y El Pitu",
+        "deezer_id": "233465501",
         "channel_id": "UCvN1mRFfAfWYTiIkM70qUWA",
     },
     {
         "nombre": "Yirow Y El Tingo",
+        "deezer_id": "246706542",
         "channel_id": "UCEq3_5h1Xi_vLbytP7OzuNA",
     },
     {
         "nombre": "Nany La Kbra",
+        "deezer_id": "349727462",
         "channel_id": "UCG4lSNdNx_LuLnN2EW6uWwQ",
     },
     {
         "nombre": "Ya Ice Dilan",
+        "deezer_id": "312201361",
         "channel_id": "UC9aJbR9Q8nscvZaMw_cH4Ww",
     },
     {
         "nombre": "Rey Tony",
+        "deezer_id": "11269534",
         "channel_id": "UCDhExL0uVtumv_DEjPPq5qg",
     },
     {
         "nombre": "Baby Maikol",
+        "deezer_id": "95702072",
         "channel_id": "UCP5R6Mgbk_bgtgzZguLNKdA",
     },
     {
         "nombre": "Payaso X Ley",
+        "deezer_id": "100735422",
         "channel_id": "UCauTaqBvFqqqJTu3B4Wc1GA",
     },
     {
         "nombre": "Kaly Y Kowa",
+        "deezer_id": "268432602",
         "channel_id": "UCSfR51myQhs2ZcdzrWo0Z4w",
     },
     {
         "nombre": "Wildey",
+        "deezer_id": "8440220",
         "channel_id": "UCmFS-VSa4Wf3F1wdWS-8p_g",
     },
     {
         "nombre": "Wow Popy",
+        "deezer_id": "94339592",
         "channel_id": "UCtFkN8UFxT_MuNdySlfuFuA",
     },
     {
         "nombre": "Talent Fuego",
+        "deezer_id": "319839381",
         "channel_id": "UC0dVmcXfNa7lVeUBve3_FXw",
     },
     {
         "nombre": "Mawell",
+        "deezer_id": "11269890",
         "channel_id": "UCL6P-jUDZEKBA-Lb6WFccWg",
     },
     {
         "nombre": "Harryson",
+        "deezer_id": "305498",
         "channel_id": "UC2ihX5uoblnN4wsA-ayIAAA",
     },
     {
         "nombre": "El Chulo",
+        "deezer_id": "1318293",
         "channel_id": "UCiT8VNdnpeYnCTPJZoqym9g",
     },
     {
         "nombre": "Fixty Ordara",
+        "deezer_id": "148250982",
         "channel_id": "UCDHDCbVOQywsLCsCZ8PH-AA",
     },
     {
         "nombre": "El Kamel",
+        "deezer_id": "13147221",
         "channel_id": "UCPnWcazEV7QM0H7qBx6NVXg",
     },
     {
         "nombre": "Velito el Bufón",
+        "deezer_id": "154487672",
         "channel_id": "UCRA9cRfAJXuxDRcFnoB7pwg",
     },
     {
         "nombre": "Un Titico",
+        "deezer_id": "14576461",
         "channel_id": "UCT2KiGFSPZIF3DR9UIN2fYw",
     },
     {
         "nombre": "Musteerifa",
+        "deezer_id": "297753211",
         "channel_id": "UCiT8PzlQqtPC7lWFh3--4jw",
         "channel_ids": [
             "UCiT8PzlQqtPC7lWFh3--4jw",
@@ -170,42 +209,52 @@ ARTISTAS = [
     },
     {
         "nombre": "Los Dele",
+        "deezer_id": "246797622",
         "channel_id": "UCe9SuCBefzhTyPCgiMMvcbA",
     },
     {
         "nombre": "Chocolate MC",
+        "deezer_id": "1385931",
         "channel_id": "UCYVuThmAmbXxk1o9Un5Cc_w",
     },
     {
         "nombre": "El Chacal",
+        "deezer_id": "357494",
         "channel_id": "UCJt4IsSmUjqTaamhCJoKK_g",
     },
     {
         "nombre": "El Micha",
+        "deezer_id": "279482",
         "channel_id": "UCHhrMSqe_C1E_JBEz3mRlew",
     },
     {
         "nombre": "Yomil",
+        "deezer_id": "5051695",
         "channel_id": "UCPfXwOpwRIbVsqqTsgt4i5g",
     },
     {
         "nombre": "Jacob Forever",
+        "deezer_id": "1533735",
         "channel_id": "UCJ1-Pwsroy-gzMqlfKDF4Hg",
     },
     {
         "nombre": "Gente de Zona",
+        "deezer_id": "279489",
         "channel_id": "UCl2KQVc_GFH081i7b9CJQug",
     },
     {
         "nombre": "La Diosa",
+        "deezer_id": "4266566",
         "channel_id": "UChbVOQHgq01JoHY4axuWV0A",
     },
     {
         "nombre": "Seidy La Niña",
+        "deezer_id": "59734012",
         "channel_id": "UCFqYfgj_7h3ZUkBnyYS-TFg",
     },
     {
         "nombre": "Yandito",
+        "deezer_id": "104387432",
         "channel_id": "UCDBIl4Gc9VJjTSy8g_tve5w",
         "channel_ids": [
             "UCDBIl4Gc9VJjTSy8g_tve5w",
@@ -214,6 +263,7 @@ ARTISTAS = [
     },
     {
         "nombre": "Yeyito DK",
+        "deezer_id": "262957411",
         "channel_id": "UCrP6x4goKf26TaWWHbJM0ZA",
         "channel_ids": [
             "UCrP6x4goKf26TaWWHbJM0ZA",
@@ -225,19 +275,27 @@ ARTISTAS = [
     # al arrancar (ver resolver_handles_artistas).
     {
         "nombre": "Anyelazo",
+        "deezer_id": "262524691",
         "handle": "@anyelazo_oficial",
     },
     {
         "nombre": "El Yohas",
+        "deezer_id": "269045212",
         "handle": "@el_yohas",
     },
     {
         "nombre": "El Ankla",
+        "deezer_id": "64307332",
         "handle": "@elanklaofficial",
     },
     {
         "nombre": "Dj Honda",
         "handle": "@hondadj2026",
+    },
+    # Artista solo con Deezer (sin canal de YouTube Music configurado).
+    {
+        "nombre": "Ozunaje",
+        "deezer_id": "298508751",
     },
 ]
 
@@ -282,6 +340,34 @@ def normalizar_titulo_album(titulo):
 # ============================================================
 # ESTADO
 # ============================================================
+
+def _titulo_sin_feat(titulo):
+    """Título normalizado sin '(feat. ...)' / '(with ...)'."""
+    texto = re.sub(
+        r"\s*[\(\[]\s*(?:feat|ft|featuring|with)\b[^\)\]]*[\)\]]",
+        "",
+        str(titulo or ""),
+        flags=re.IGNORECASE,
+    )
+    return normalizar_titulo_album(texto)
+
+
+def clave_base_cancion(cancion):
+    """
+    Clave entre fuentes (YouTube Music / Deezer): artista monitorizado +
+    título sin feat. Evita publicar dos veces la misma canción.
+    """
+    monitorizado = normalizar_titulo_album(
+        cancion.get("artista_monitorizado")
+    )
+    return f"m:{monitorizado}|{_titulo_sin_feat(cancion.get('titulo'))}"
+
+
+def registrar_claves_cancion(canciones_publicadas, cancion):
+    """Registra las dos claves de comparación de una canción."""
+    canciones_publicadas.add(clave_cancion(cancion))
+    canciones_publicadas.add(clave_base_cancion(cancion))
+
 
 def clave_cancion(cancion):
     """
@@ -1070,6 +1156,10 @@ def obtener_lanzamientos_artista(
 
     if not channel_ids:
         channel_id = artista.get("channel_id")
+
+        if not channel_id and artista.get("deezer_id"):
+            # Artista configurado solo con Deezer.
+            return []
 
         if not channel_id:
             print(
@@ -1953,16 +2043,7 @@ def enviar_preview_audio(cancion, preview):
     Si Telegram pide esperar (error 429), espera y reintenta una vez.
     """
     teclado = json.dumps(
-        {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": "▶️ Escuchar en YouTube Music",
-                        "url": cancion["youtube_url"],
-                    }
-                ]
-            ]
-        },
+        _boton_cancion(cancion),
         ensure_ascii=False,
     )
 
@@ -2013,6 +2094,67 @@ def enviar_preview_audio(cancion, preview):
     except Exception as error:
         print(f"Preview: no se pudo enviar el audio: {error}")
         return False
+
+
+def _boton_cancion(cancion):
+    """Botón inline de la canción (YouTube Music por defecto)."""
+    texto = cancion.get("boton_texto") or "▶️ Escuchar en YouTube Music"
+    url = cancion.get("boton_url") or cancion.get("youtube_url")
+    return {"inline_keyboard": [[{"text": texto, "url": url}]]}
+
+
+def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
+    """Publica usando una portada ya disponible por URL (p. ej. Deezer)."""
+    try:
+        imagen = requests.get(cancion["portada_url"], timeout=30)
+        imagen.raise_for_status()
+        contenido = imagen.content
+        if not contenido:
+            raise ValueError("la portada descargada está vacía")
+    except Exception as error:
+        if PUBLICAR_SIN_PORTADA_SI_FALLA:
+            print(f"AVISO: no se pudo descargar la portada ({error}); se publica sin portada.")
+            return enviar_sin_portada(
+                caption,
+                reply_markup if con_boton else None,
+            )
+        return False, f"No se pudo descargar la portada: {error}"
+
+    try:
+        respuesta = requests.post(
+            f"{TELEGRAM_API}/sendPhoto",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "caption": caption,
+                "parse_mode": "HTML",
+                **(
+                    {
+                        "reply_markup": json.dumps(
+                            reply_markup,
+                            ensure_ascii=False,
+                        )
+                    }
+                    if con_boton
+                    else {}
+                ),
+            },
+            files={
+                "photo": (
+                    f"{cancion.get('video_id') or 'portada'}.jpg",
+                    BytesIO(contenido),
+                    "image/jpeg",
+                )
+            },
+            timeout=60,
+        )
+        if not respuesta.ok:
+            return False, respuesta.text
+        datos = respuesta.json()
+        if not datos.get("ok"):
+            return False, str(datos)
+        return True, None
+    except Exception as error:
+        return False, str(error)
 
 
 def publicar_cancion(
@@ -2068,27 +2210,7 @@ def publicar_cancion(
     # BOTÓN
     # ========================================================
 
-    reply_markup = {
-
-        "inline_keyboard": [
-
-            [
-
-                {
-                    "text":
-                        "▶️ Escuchar en YouTube Music",
-
-                    "url":
-                        cancion[
-                            "youtube_url"
-                        ],
-                }
-
-            ]
-
-        ]
-
-    }
+    reply_markup = _boton_cancion(cancion)
 
     # ========================================================
     # PORTADA DE YOUTUBE MUSIC MEDIANTE EL ALBUM ID
@@ -2097,6 +2219,15 @@ def publicar_cancion(
     video_id = cancion[
         "video_id"
     ]
+
+    # Canciones de otras fuentes (Deezer) traen su portada por URL.
+    if cancion.get("portada_url"):
+        return _publicar_con_portada_url(
+            cancion,
+            caption,
+            reply_markup,
+            con_boton,
+        )
 
     album_browse_id = obtener_album_browse_id_para_cancion(
         ytmusic,
@@ -2387,6 +2518,380 @@ def crear_linea_base(
 # PROGRAMA PRINCIPAL
 # ============================================================
 
+def ids_canales_monitorizados():
+    """Conjunto con todos los channel_id de los artistas configurados."""
+    ids = set()
+    for artista in ARTISTAS:
+        if artista.get("channel_id"):
+            ids.add(artista["channel_id"])
+        ids.update(artista.get("channel_ids") or [])
+    return ids
+
+
+def buscar_colaboraciones_artista(
+    ytmusic,
+    artista,
+    ids_monitorizados,
+    canciones_publicadas,
+    albumes_cache,
+):
+    """
+    Busca canciones donde aparece un artista monitorizado (por ID de canal,
+    nunca por nombre) aunque estén en el canal de otro artista.
+    Devuelve las canciones candidatas del año actual. Las de años anteriores,
+    y todo lo encontrado en la primera pasada de cada artista, se registran
+    como históricas.
+    """
+    if not (artista.get("channel_id") or artista.get("channel_ids")):
+        return []
+
+    nombre = artista["nombre"]
+    marca_base = f"base:colab:{normalizar_nombre(nombre)}"
+    primera_pasada = marca_base not in canciones_publicadas
+    anio_actual = datetime.now(timezone.utc).year
+
+    try:
+        resultados = ytmusic.search(
+            nombre,
+            filter="songs",
+            limit=40,
+        )
+    except Exception as error:
+        print(f"  Colaboraciones: no se pudo buscar '{nombre}': {error}")
+        return []
+
+    candidatas = []
+    registradas = 0
+
+    for resultado in resultados or []:
+        if not isinstance(resultado, dict):
+            continue
+
+        video_id = resultado.get("videoId")
+        titulo = resultado.get("title")
+        if not video_id or not titulo:
+            continue
+
+        cancion_id = f"video:{video_id}"
+        if cancion_id in canciones_publicadas:
+            continue
+
+        artistas_resultado = [
+            a
+            for a in (resultado.get("artists") or [])
+            if isinstance(a, dict)
+        ]
+        ids_resultado = {
+            a.get("id") for a in artistas_resultado if a.get("id")
+        }
+        if not (ids_resultado & ids_monitorizados):
+            continue
+
+        album = resultado.get("album")
+        album = album if isinstance(album, dict) else {}
+        album_id = album.get("id")
+
+        datos_album = None
+        if album_id:
+            if album_id in albumes_cache:
+                datos_album = albumes_cache[album_id]
+            else:
+                try:
+                    datos_album = ytmusic.get_album(album_id)
+                except Exception as error:
+                    print(
+                        f"  Colaboraciones: no se pudo obtener el álbum "
+                        f"{album_id}: {error}"
+                    )
+                    datos_album = None
+                albumes_cache[album_id] = datos_album
+
+        datos_album = datos_album if isinstance(datos_album, dict) else {}
+        anio = datos_album.get("year") or resultado.get("year") or ""
+
+        tipo = str(datos_album.get("type") or "Single").strip()
+        if tipo.casefold() == "ep":
+            tipo = "EP"
+        elif tipo.casefold() in ("album", "álbum"):
+            tipo = "Album"
+        else:
+            tipo = "Single"
+
+        titulo_lanzamiento = (
+            datos_album.get("title")
+            or album.get("name")
+            or titulo
+        )
+
+        cancion = crear_cancion_desde_track(
+            {
+                "videoId": video_id,
+                "title": titulo,
+                "artists": artistas_resultado,
+            },
+            nombre,
+            tipo,
+            anio,
+            titulo_lanzamiento=titulo_lanzamiento,
+            album_browse_id=album_id,
+        )
+        if not cancion:
+            continue
+
+        anio_numero = _anio_numerico(cancion)
+        if not anio_numero:
+            # Sin año fiable: no se publica ni se registra todavía.
+            continue
+
+        if primera_pasada or anio_numero != anio_actual:
+            canciones_publicadas.add(cancion_id)
+            registrar_claves_cancion(canciones_publicadas, cancion)
+            registradas += 1
+        else:
+            candidatas.append(cancion)
+
+    canciones_publicadas.add(marca_base)
+
+    if primera_pasada:
+        print(
+            f"  Colaboraciones: primera pasada, {registradas} "
+            f"registrada(s) como históricas."
+        )
+    elif candidatas or registradas:
+        print(
+            f"  Colaboraciones: {len(candidatas)} candidata(s), "
+            f"{registradas} histórica(s)."
+        )
+
+    return candidatas
+
+
+def _deezer_get(ruta, params=None):
+    """GET a la API pública de Deezer. Devuelve el JSON o None si falla."""
+    for intento in range(2):
+        try:
+            time.sleep(0.2)
+            respuesta = requests.get(
+                f"{DEEZER_API}{ruta}",
+                params=params,
+                timeout=20,
+            )
+            datos = respuesta.json()
+        except Exception as error:
+            print(f"  Deezer: error consultando {ruta}: {error}")
+            return None
+
+        if isinstance(datos, dict) and datos.get("error"):
+            codigo = (datos["error"] or {}).get("code")
+            if codigo == 4 and intento == 0:
+                time.sleep(3)
+                continue
+            print(f"  Deezer: {ruta} devolvió error: {datos['error']}")
+            return None
+
+        return datos
+
+    return None
+
+
+def _albumes_deezer(deezer_id):
+    """Lista los lanzamientos de un artista (hasta 300). None si falla."""
+    albumes = []
+    indice = 0
+    for _ in range(3):
+        datos = _deezer_get(
+            f"/artist/{deezer_id}/albums",
+            {"limit": 100, "index": indice},
+        )
+        if not isinstance(datos, dict):
+            return None
+        albumes.extend(datos.get("data") or [])
+        if not datos.get("next"):
+            break
+        indice += 100
+    return albumes
+
+
+def _canciones_de_album_deezer(
+    nombre,
+    deezer_id,
+    album_id,
+    resumen,
+    canciones_publicadas,
+):
+    """
+    Convierte un álbum/EP/single de Deezer en canciones publicables.
+    Solo incluye pistas donde participa el artista. Devuelve None si falla.
+    """
+    detalle = _deezer_get(f"/album/{album_id}")
+    if not isinstance(detalle, dict):
+        return None
+
+    tipo_deezer = str(
+        detalle.get("record_type") or resumen.get("record_type") or ""
+    ).casefold()
+    if tipo_deezer == "single":
+        tipo = "Single"
+    elif tipo_deezer == "ep":
+        tipo = "EP"
+    else:
+        tipo = "Album"
+
+    titulo_album = detalle.get("title") or resumen.get("title") or "Sin título"
+    fecha = str(detalle.get("release_date") or resumen.get("release_date") or "")
+    anio = fecha[:4]
+    portada = (
+        detalle.get("cover_xl")
+        or detalle.get("cover_big")
+        or resumen.get("cover_xl")
+        or resumen.get("cover_big")
+    )
+    pistas = ((detalle.get("tracks") or {}).get("data")) or []
+
+    resultado = []
+    for pista in pistas:
+        track_id = pista.get("id")
+        if not track_id:
+            continue
+        cancion_id = f"deezer:{track_id}"
+        if cancion_id in canciones_publicadas:
+            continue
+
+        detalle_pista = _deezer_get(f"/track/{track_id}")
+        if not isinstance(detalle_pista, dict):
+            return None
+
+        contribuyentes = [
+            c
+            for c in (detalle_pista.get("contributors") or [])
+            if isinstance(c, dict) and c.get("name")
+        ]
+        if not contribuyentes:
+            contribuyentes = [pista.get("artist") or {"name": nombre}]
+
+        ids_contribuyentes = {str(c.get("id")) for c in contribuyentes}
+        if str(deezer_id) not in ids_contribuyentes:
+            # Pista donde no participa el artista (p. ej. recopilatorios).
+            canciones_publicadas.add(cancion_id)
+            continue
+
+        titulo = detalle_pista.get("title") or pista.get("title")
+        if not titulo:
+            continue
+
+        resultado.append(
+            {
+                "id": cancion_id,
+                "video_id": f"deezer{track_id}",
+                "titulo": titulo,
+                "artistas": formatear_artistas(
+                    [c["name"] for c in contribuyentes]
+                ),
+                "tipo": tipo,
+                "anio": anio,
+                "nombre_publicacion": (
+                    "Single" if tipo == "Single" else titulo_album
+                ),
+                "youtube_url": None,
+                "boton_texto": "▶️ Escuchar en Deezer",
+                "boton_url": (
+                    detalle_pista.get("link")
+                    or pista.get("link")
+                    or detalle.get("link")
+                ),
+                "artista_monitorizado": nombre,
+                "titulo_lanzamiento": titulo_album,
+                "album_browse_id": None,
+                "portada_url": portada,
+                "fuente": "deezer",
+            }
+        )
+
+    return resultado
+
+
+def buscar_lanzamientos_deezer(artista, canciones_publicadas):
+    """
+    Detecta lanzamientos nuevos del año actual en Deezer.
+    - Primera lectura de cada artista: registra todo sin publicar.
+    - Después: solo lanzamientos del año actual, ya publicados en Deezer
+      (fecha de hoy o anterior) y no vistos antes.
+    """
+    deezer_id = str(artista.get("deezer_id") or "").strip()
+    if not deezer_id:
+        return []
+
+    nombre = artista["nombre"]
+    marca_base = f"base:deezer:{deezer_id}"
+    primera_pasada = marca_base not in canciones_publicadas
+
+    albumes = _albumes_deezer(deezer_id)
+    if albumes is None:
+        print(f"  Deezer: no se pudo leer el catálogo de {nombre}.")
+        return []
+
+    hoy = datetime.now(timezone.utc).date()
+    candidatas = []
+    registrados = 0
+
+    for album in albumes:
+        if not isinstance(album, dict) or not album.get("id"):
+            continue
+
+        marca_album = f"deezer:album:{album['id']}"
+        if marca_album in canciones_publicadas:
+            continue
+
+        if primera_pasada:
+            canciones_publicadas.add(marca_album)
+            registrados += 1
+            continue
+
+        try:
+            fecha = datetime.strptime(
+                str(album.get("release_date") or "")[:10],
+                "%Y-%m-%d",
+            ).date()
+        except ValueError:
+            continue
+
+        if fecha > hoy:
+            # Aún no ha salido: se revisa en una ejecución posterior.
+            continue
+
+        if fecha.year != hoy.year:
+            canciones_publicadas.add(marca_album)
+            registrados += 1
+            continue
+
+        canciones_album = _canciones_de_album_deezer(
+            nombre,
+            deezer_id,
+            album["id"],
+            album,
+            canciones_publicadas,
+        )
+        if canciones_album is None:
+            continue  # se reintenta en la próxima ejecución
+
+        if canciones_album:
+            candidatas.extend(canciones_album)
+        else:
+            canciones_publicadas.add(marca_album)
+
+    canciones_publicadas.add(marca_base)
+
+    if primera_pasada:
+        print(
+            f"  Deezer: primera lectura, {registrados} lanzamiento(s) "
+            f"registrado(s) como históricos."
+        )
+    elif candidatas:
+        print(f"  Deezer: {len(candidatas)} canción(es) candidata(s).")
+
+    return candidatas
+
+
 def resolver_handle_a_channel_id(handle):
     """
     Obtiene el channel_id (UC...) de un canal a partir de su @usuario.
@@ -2546,6 +3051,9 @@ def main():
 
     tamano_estado_inicial = len(canciones_publicadas)
 
+    ids_monitorizados = ids_canales_monitorizados()
+    albumes_colaboraciones = {}
+
     nuevas_canciones = []
 
     detectadas_en_esta_ejecucion = (
@@ -2570,11 +3078,32 @@ def main():
             )
         )
 
+        # Colaboraciones alojadas en el canal de otro artista.
+        if BUSCAR_COLABORACIONES:
+            canciones.extend(
+                buscar_colaboraciones_artista(
+                    ytmusic,
+                    artista,
+                    ids_monitorizados,
+                    canciones_publicadas,
+                    albumes_colaboraciones,
+                )
+            )
+
+        # Lanzamientos nuevos detectados en Deezer.
+        if BUSCAR_EN_DEEZER:
+            canciones.extend(
+                buscar_lanzamientos_deezer(
+                    artista,
+                    canciones_publicadas,
+                )
+            )
+
         # Registra la clave (artista + título) de las canciones ya
         # conocidas, para reconocerlas si reaparecen con otro ID.
         for cancion in canciones:
             if cancion.get("id") in canciones_publicadas:
-                canciones_publicadas.add(clave_cancion(cancion))
+                registrar_claves_cancion(canciones_publicadas, cancion)
 
         # Para artistas nuevos o canales nuevos configurados con la regla
         # "solo la última", los lanzamientos anteriores se registran como
@@ -2606,11 +3135,14 @@ def main():
                 continue
 
             clave = clave_cancion(cancion)
+            clave_base = clave_base_cancion(cancion)
 
-            # Misma canción con otro ID (single/álbum/video)
+            # Misma canción con otro ID o desde otra fuente
             if (
                 clave in canciones_publicadas
+                or clave_base in canciones_publicadas
                 or clave in detectadas_en_esta_ejecucion
+                or clave_base in detectadas_en_esta_ejecucion
             ):
                 print(
                     "  Omitida (misma canción con otro ID): "
@@ -2631,7 +3163,7 @@ def main():
                     f"{cancion['titulo']}"
                 )
                 canciones_publicadas.add(cancion_id)
-                canciones_publicadas.add(clave)
+                registrar_claves_cancion(canciones_publicadas, cancion)
                 continue
 
             detectadas_en_esta_ejecucion.add(
@@ -2639,6 +3171,9 @@ def main():
             )
             detectadas_en_esta_ejecucion.add(
                 clave
+            )
+            detectadas_en_esta_ejecucion.add(
+                clave_base
             )
 
             nuevas_canciones.append(
@@ -2740,8 +3275,9 @@ def main():
             canciones_publicadas.add(
                 cancion["id"]
             )
-            canciones_publicadas.add(
-                clave_cancion(cancion)
+            registrar_claves_cancion(
+                canciones_publicadas,
+                cancion,
             )
 
             # Guardado inmediato.
