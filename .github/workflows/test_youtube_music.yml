@@ -3,19 +3,9 @@ name: Test YouTube Music Search
 on:
   workflow_dispatch:
     inputs:
-      titulo:
-        description: "Título de la canción"
+      deezer_url:
+        description: "Enlace de Deezer (track o album)"
         required: true
-        type: string
-
-      artistas:
-        description: "Artistas separados por coma"
-        required: true
-        type: string
-
-      isrc:
-        description: "ISRC (opcional)"
-        required: false
         type: string
 
 jobs:
@@ -27,37 +17,230 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v6
 
-      - name: Mostrar archivo del buscador
+      - name: Mostrar archivos
         run: |
           echo "========================================"
-          echo "YOUTUBE MUSIC SEARCH"
+          echo "YOUTUBE MUSIC TEST"
           echo "========================================"
 
-          sed -n '1,400p' youtube_music_search.py
+          echo ""
+          echo "Archivo Deezer:"
+          echo "----------------------------------------"
 
-      - name: Instalar dependencia
+          sed -n '1,500p' deezer_extractor.py
+
+          echo ""
+          echo "Archivo YouTube Music:"
+          echo "----------------------------------------"
+
+          sed -n '1,500p' youtube_music_search.py
+
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install ytmusicapi
 
-      - name: Mostrar datos de prueba
+          pip install requests ytmusicapi
+
+      - name: Extraer datos de Deezer
+        id: deezer
         run: |
           echo "========================================"
-          echo "DATOS DE ENTRADA"
+          echo "EXTRAYENDO DATOS DE DEEZER"
           echo "========================================"
 
-          echo "Título:"
-          echo "${{ inputs.titulo }}"
+          echo ""
+          echo "URL:"
+          echo "${{ inputs.deezer_url }}"
 
           echo ""
 
-          echo "Artistas:"
-          echo "${{ inputs.artistas }}"
+          python deezer_extractor.py \
+            "${{ inputs.deezer_url }}" \
+            > deezer_result.json
 
-          echo ""
+          cat deezer_result.json
 
-          echo "ISRC:"
-          echo "${{ inputs.isrc }}"
+      - name: Preparar datos para YouTube Music
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+
+          with open(
+              "deezer_result.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              result = json.load(f)
+
+          if not result.get("ok"):
+              print("ERROR: El extractor de Deezer falló.")
+              print(result)
+              sys.exit(1)
+
+          data = result.get("data") or {}
+
+          # --------------------------------------------------
+          # SINGLE
+          # --------------------------------------------------
+
+          if data.get("deezer_track_id"):
+
+              titulo_publicacion = data.get(
+                  "titulo_publicacion"
+              )
+
+              artistas = data.get(
+                  "artistas"
+              )
+
+              isrc = data.get(
+                  "isrc"
+              )
+
+              duracion = data.get(
+                  "duracion"
+              )
+
+              deezer_track_id = data.get(
+                  "deezer_track_id"
+              )
+
+          # --------------------------------------------------
+          # EP / ÁLBUM
+          # --------------------------------------------------
+
+          else:
+
+              tracks = data.get(
+                  "tracks"
+              ) or []
+
+              if not tracks:
+
+                  print(
+                      "ERROR: La publicación no contiene tracks."
+                  )
+
+                  sys.exit(1)
+
+              # Para esta primera prueba usamos el primer
+              # track del EP/álbum.
+              track = tracks[0]
+
+              titulo_publicacion = track.get(
+                  "titulo_publicacion"
+              )
+
+              artistas = track.get(
+                  "artistas"
+              )
+
+              isrc = track.get(
+                  "isrc"
+              )
+
+              duracion = track.get(
+                  "duracion"
+              )
+
+              deezer_track_id = track.get(
+                  "deezer_track_id"
+              )
+
+          # --------------------------------------------------
+          # Convertir artistas
+          # --------------------------------------------------
+
+          if isinstance(artistas, str):
+
+              artists_list = [
+                  artist.strip()
+                  for artist in artistas.split(",")
+                  if artist.strip()
+              ]
+
+          elif isinstance(artistas, list):
+
+              artists_list = artistas
+
+          else:
+
+              artists_list = []
+
+          # --------------------------------------------------
+          # Convertir duración MM:SS -> segundos
+          # --------------------------------------------------
+
+          duration_seconds = None
+
+          if duracion:
+
+              try:
+
+                  minutes, seconds = (
+                      duracion.split(":")
+                  )
+
+                  duration_seconds = (
+                      int(minutes) * 60
+                      + int(seconds)
+                  )
+
+              except Exception:
+
+                  duration_seconds = None
+
+          # --------------------------------------------------
+          # Crear archivo intermedio
+          # --------------------------------------------------
+
+          youtube_input = {
+              "titulo_publicacion": (
+                  titulo_publicacion
+              ),
+              "artistas": artists_list,
+              "isrc": isrc,
+              "duracion": duracion,
+              "duracion_segundos": (
+                  duration_seconds
+              ),
+              "deezer_track_id": (
+                  deezer_track_id
+              )
+          }
+
+          with open(
+              "youtube_input.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  youtube_input,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
+
+          print(
+              "========================================"
+          )
+          print(
+              "DATOS PREPARADOS PARA YOUTUBE MUSIC"
+          )
+          print(
+              "========================================"
+          )
+
+          print(
+              json.dumps(
+                  youtube_input,
+                  ensure_ascii=False,
+                  indent=2
+              )
+          )
+          PY
 
       - name: Buscar en YouTube Music
         run: |
@@ -65,7 +248,71 @@ jobs:
           echo "BUSCANDO EN YOUTUBE MUSIC"
           echo "========================================"
 
-          python youtube_music_search.py \
-            "${{ inputs.titulo }}" \
-            "${{ inputs.artistas }}" \
-            "${{ inputs.isrc }}"
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          with open(
+              "youtube_input.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+
+              data = json.load(f)
+
+          titulo_publicacion = data.get(
+              "titulo_publicacion"
+          )
+
+          artistas = data.get(
+              "artistas"
+          ) or []
+
+          isrc = data.get(
+              "isrc"
+          )
+
+          duration_seconds = data.get(
+              "duracion_segundos"
+          )
+
+          artists_string = ", ".join(
+              artistas
+          )
+
+          command = [
+              sys.executable,
+              "youtube_music_search.py",
+              titulo_publicacion,
+              artists_string,
+          ]
+
+          if isrc:
+              command.append(isrc)
+          else:
+              command.append("")
+
+          if duration_seconds is not None:
+              command.append(
+                  str(duration_seconds)
+              )
+
+          print(
+              "Comando:"
+          )
+
+          print(
+              " ".join(
+                  f'"{x}"'
+                  for x in command
+              )
+          )
+
+          print("")
+
+          subprocess.run(
+              command,
+              check=True
+          )
+          PY
