@@ -33,26 +33,6 @@ jobs:
 
 
       # ==================================================
-      # MOSTRAR ARCHIVOS
-      # ==================================================
-
-      - name: Mostrar módulos utilizados
-        run: |
-
-          echo "========================================"
-          echo "MÓDULOS DEL PIPELINE"
-          echo "========================================"
-
-          echo ""
-          echo "--- deezer_extractor.py ---"
-          sed -n '1,260p' deezer_extractor.py
-
-          echo ""
-          echo "--- youtube_music_search.py ---"
-          sed -n '1,360p' youtube_music_search.py
-
-
-      # ==================================================
       # INSTALAR DEPENDENCIAS
       # ==================================================
 
@@ -138,25 +118,23 @@ jobs:
           if not result.get("ok"):
 
               print("")
-              print("ERROR: El extractor de Deezer no devolvió ok=true.")
+              print(
+                  "ERROR: El extractor de Deezer no devolvió ok=true."
+              )
               print("")
 
               sys.exit(1)
 
 
-          data = result.get("data") or {}
-
-
-          # ==================================================
-          # DATOS GENERALES
-          # ==================================================
-
-          tipo_publicacion = (
-              data.get("tipo_publicacion")
-              or data.get("record_type")
-              or ""
+          data = (
+              result.get("data")
+              or {}
           )
 
+
+          # ==================================================
+          # TÍTULO DE LA PISTA SOLICITADA
+          # ==================================================
 
           track_title_requested = (
               "${{ inputs.track_title }}"
@@ -165,13 +143,20 @@ jobs:
 
 
           # ==================================================
+          # DETERMINAR LA PISTA
+          # ==================================================
+
+          tracks = (
+              data.get("tracks")
+              or []
+          )
+
+
+          # ==================================================
           # SINGLE
           # ==================================================
 
-          if (
-              data.get("deezer_track_id") is not None
-              and not data.get("tracks")
-          ):
+          if not tracks:
 
               track = data
 
@@ -182,46 +167,39 @@ jobs:
 
           else:
 
-              tracks = data.get("tracks") or []
-
-              if not tracks:
-
-                  print("")
-                  print("ERROR: Deezer no devolvió ninguna pista.")
-                  print("")
-
-                  sys.exit(1)
-
-
               track = None
 
 
               # ----------------------------------------------
-              # BUSCAR PISTA SOLICITADA
+              # BUSCAR POR TÍTULO SI SE ESPECIFICÓ
               # ----------------------------------------------
 
               if track_title_requested:
 
                   requested_normalized = (
                       track_title_requested
+                      casefold()
                       .strip()
-                      .casefold()
                   )
 
 
                   for candidate in tracks:
 
                       candidate_title = (
-                          candidate.get("titulo_publicacion")
-                          or candidate.get("titulo")
+                          candidate.get(
+                              "titulo_publicacion"
+                          )
+                          or candidate.get(
+                              "titulo"
+                          )
                           or ""
                       )
 
 
                       if (
                           candidate_title
+                          casefold()
                           .strip()
-                          .casefold()
                           == requested_normalized
                       ):
 
@@ -238,15 +216,17 @@ jobs:
                       for candidate in tracks:
 
                           candidate_title = (
-                              candidate.get("titulo")
+                              candidate.get(
+                                  "titulo"
+                              )
                               or ""
                           )
 
 
                           if (
                               candidate_title
+                              casefold()
                               .strip()
-                              .casefold()
                               == requested_normalized
                           ):
 
@@ -255,16 +235,19 @@ jobs:
 
 
               # ----------------------------------------------
-              # SI NO SE ESPECIFICÓ PISTA
+              # SIN TÍTULO → PRIMERA PISTA
               # ----------------------------------------------
 
-              if track is None and not track_title_requested:
+              if (
+                  track is None
+                  and not track_title_requested
+              ):
 
                   track = tracks[0]
 
 
               # ----------------------------------------------
-              # PISTA NO ENCONTRADA
+              # NO ENCONTRADA
               # ----------------------------------------------
 
               if track is None:
@@ -278,7 +261,9 @@ jobs:
                   )
                   print("")
 
-                  print("Pistas disponibles:")
+                  print(
+                      "Pistas disponibles:"
+                  )
 
                   for candidate in tracks:
 
@@ -287,9 +272,11 @@ jobs:
                           + str(
                               candidate.get(
                                   "titulo_publicacion"
-                                  or candidate.get("titulo")
-                                  or ""
                               )
+                              or candidate.get(
+                                  "titulo"
+                              )
+                              or ""
                           )
                       )
 
@@ -299,31 +286,114 @@ jobs:
 
 
           # ==================================================
+          # NORMALIZAR ARTISTAS
+          # ==================================================
+
+          artistas_raw = (
+              track.get(
+                  "artistas"
+              )
+              or []
+          )
+
+
+          if isinstance(
+              artistas_raw,
+              str
+          ):
+
+              artistas = [
+
+                  artista.strip()
+
+                  for artista in
+                  artistas_raw.split(",")
+
+                  if artista.strip()
+
+              ]
+
+          elif isinstance(
+              artistas_raw,
+              list
+          ):
+
+              artistas = [
+
+                  str(artista).strip()
+
+                  for artista in artistas_raw
+
+                  if str(artista).strip()
+
+              ]
+
+          else:
+
+              artistas = []
+
+
+          # ==================================================
           # CONSTRUIR ENTRADA YOUTUBE MUSIC
           # ==================================================
 
           youtube_input = {
 
               "titulo_publicacion": (
-                  track.get("titulo_publicacion")
-                  or track.get("titulo")
+                  track.get(
+                      "titulo_publicacion"
+                  )
+                  or track.get(
+                      "titulo"
+                  )
                   or ""
               ),
 
-              "artistas": (
-                  track.get("artistas")
-                  or []
-              ),
+              "artistas": artistas,
 
               "isrc": (
-                  track.get("isrc")
+                  track.get(
+                      "isrc"
+                  )
               ),
 
               "duracion_segundos": (
-                  track.get("duracion_segundos")
+                  track.get(
+                      "duracion_segundos"
+                  )
               )
 
           }
+
+
+          # ==================================================
+          # VALIDACIONES
+          # ==================================================
+
+          if not youtube_input[
+              "titulo_publicacion"
+          ]:
+
+              print("")
+              print(
+                  "ERROR: Falta titulo_publicacion."
+              )
+              print("")
+
+              sys.exit(1)
+
+
+          if not youtube_input[
+              "artistas"
+          ]:
+
+              print("")
+              print(
+                  "ERROR: No se pudieron determinar los artistas."
+              )
+              print("")
+
+              sys.exit(1)
 
 
           # ==================================================
@@ -402,6 +472,7 @@ jobs:
               data.get(
                   "titulo_publicacion"
               )
+              or ""
           )
 
 
@@ -427,6 +498,31 @@ jobs:
           )
 
 
+          # ==================================================
+          # ASEGURAR LISTA DE ARTISTAS
+          # ==================================================
+
+          if isinstance(
+              artistas,
+              str
+          ):
+
+              artistas = [
+
+                  artista.strip()
+
+                  for artista in
+                  artistas.split(",")
+
+                  if artista.strip()
+
+              ]
+
+
+          # ==================================================
+          # CONSTRUIR STRING DE ARTISTAS
+          # ==================================================
+
           artists_string = ", ".join(
               artistas
           )
@@ -446,20 +542,9 @@ jobs:
 
               artists_string,
 
+              isrc or "",
+
           ]
-
-
-          if isrc:
-
-              command.append(
-                  isrc
-              )
-
-          else:
-
-              command.append(
-                  ""
-              )
 
 
           if duration_seconds is not None:
@@ -475,6 +560,7 @@ jobs:
           # MOSTRAR COMANDO
           # ==================================================
 
+          print("")
           print(
               "Comando:"
           )
@@ -490,13 +576,66 @@ jobs:
 
 
           # ==================================================
-          # EJECUTAR
+          # EJECUTAR Y GUARDAR JSON
           # ==================================================
 
-          subprocess.run(
-              command,
-              check=True
+          with open(
+              "youtube_result.json",
+              "w",
+              encoding="utf-8"
+          ) as output_file:
+
+              process = subprocess.run(
+
+                  command,
+
+                  stdout=output_file,
+
+                  stderr=None,
+
+                  text=True,
+
+                  check=True
+
+              )
+
+
+          # ==================================================
+          # MOSTRAR RESULTADO
+          # ==================================================
+
+          print(
+              "========================================"
           )
+
+          print(
+              "RESULTADO YOUTUBE MUSIC"
+          )
+
+          print(
+              "========================================"
+          )
+
+          print("")
+
+          with open(
+              "youtube_result.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+
+              youtube_result = json.load(f)
+
+
+          print(
+              json.dumps(
+                  youtube_result,
+                  ensure_ascii=False,
+                  indent=2
+              )
+          )
+
+          print("")
 
           PY
 
@@ -511,7 +650,6 @@ jobs:
           python - <<'PY'
 
           import json
-          import subprocess
           import sys
 
 
@@ -544,78 +682,16 @@ jobs:
 
 
           # ==================================================
-          # LEER ENTRADA YTM
+          # LEER YOUTUBE MUSIC
           # ==================================================
 
           with open(
-              "youtube_input.json",
+              "youtube_result.json",
               "r",
               encoding="utf-8"
           ) as f:
 
-              youtube_input = json.load(f)
-
-
-          # ==================================================
-          # VOLVER A EJECUTAR YTM CAPTURANDO JSON
-          #
-          # Esto permite construir un objeto final sin
-          # cambiar youtube_music_search.py.
-          # ==================================================
-
-          command = [
-
-              sys.executable,
-
-              "youtube_music_search.py",
-
-              youtube_input.get(
-                  "titulo_publicacion"
-                  or ""
-              ),
-
-              ", ".join(
-                  youtube_input.get(
-                      "artistas"
-                  )
-                  or []
-              ),
-
-              youtube_input.get(
-                  "isrc"
-              )
-                  or "",
-
-          ]
-
-
-          duration_seconds = (
-              youtube_input.get(
-                  "duracion_segundos"
-              )
-          )
-
-
-          if duration_seconds is not None:
-
-              command.append(
-                  str(
-                      duration_seconds
-                  )
-              )
-
-
-          process = subprocess.run(
-              command,
-              capture_output=True,
-              text=True,
-              check=True
-          )
-
-
-          youtube_result = json.loads(
-              process.stdout
-          )
+              youtube_result = json.load(f)
 
 
           youtube = (
@@ -634,10 +710,7 @@ jobs:
                   deezer.get(
                       "artistas"
                   )
-                  or youtube_input.get(
-                      "artistas"
-                  )
-                  or []
+                  or ""
               ),
 
               "titulo": (
@@ -649,9 +722,6 @@ jobs:
 
               "titulo_publicacion": (
                   deezer.get(
-                      "titulo_publicacion"
-                  )
-                  or youtube_input.get(
                       "titulo_publicacion"
                   )
                   or ""
@@ -794,35 +864,45 @@ jobs:
           errors = []
 
 
-          if not final["titulo_publicacion"]:
+          if not final[
+              "titulo_publicacion"
+          ]:
 
               errors.append(
                   "Falta titulo_publicacion."
               )
 
 
-          if not final["artistas"]:
+          if not final[
+              "artistas"
+          ]:
 
               errors.append(
                   "Faltan artistas."
               )
 
 
-          if not final["duracion"]:
+          if not final[
+              "duracion"
+          ]:
 
               errors.append(
                   "Falta duración."
               )
 
 
-          if not final["fecha"]:
+          if not final[
+              "fecha"
+          ]:
 
               errors.append(
                   "Falta fecha."
               )
 
 
-          if not final["deezer_url"]:
+          if not final[
+              "deezer_url"
+          ]:
 
               errors.append(
                   "Falta URL de Deezer."
@@ -830,20 +910,39 @@ jobs:
 
 
           # ==================================================
-          # YTM
+          # YOUTUBE MUSIC
           # ==================================================
 
-          if not final["youtube_music"]["encontrado"]:
+          if not final[
+              "youtube_music"
+          ][
+              "encontrado"
+          ]:
 
               errors.append(
                   "No se encontró una coincidencia válida en YouTube Music."
               )
 
 
-          if not final["youtube_music"]["url"]:
+          if not final[
+              "youtube_music"
+          ][
+              "url"
+          ]:
 
               errors.append(
                   "YouTube Music no devolvió una URL."
+              )
+
+
+          if not final[
+              "youtube_music"
+          ][
+              "version_compatible"
+          ]:
+
+              errors.append(
+                  "La coincidencia de YouTube Music no es compatible con la versión de Deezer."
               )
 
 
@@ -851,7 +950,10 @@ jobs:
           # RESULTADO
           # ==================================================
 
-          print("========================================")
+          print(
+              "========================================"
+          )
+
 
           if errors:
 
@@ -859,7 +961,9 @@ jobs:
                   "PRUEBA FALLIDA"
               )
 
-              print("========================================")
+              print(
+                  "========================================"
+              )
 
               for error in errors:
 
@@ -876,6 +980,8 @@ jobs:
               "PRUEBA EXITOSA"
           )
 
-          print("========================================")
+          print(
+              "========================================"
+          )
 
           PY
