@@ -2,6 +2,8 @@
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -228,11 +230,125 @@ def descargar_preview(url):
         raise
 
 
+def obtener_duracion_archivo(
+    audio_path
+):
+
+    """
+    Obtiene la duración REAL del archivo de
+    preview descargado.
+
+    Se utiliza ffprobe porque permite leer
+    correctamente M4A/MP4 y MP3 sin modificar
+    el archivo.
+
+    Devuelve la duración redondeada al segundo.
+    """
+
+    ffprobe = shutil.which(
+        "ffprobe"
+    )
+
+    if not ffprobe:
+
+        raise RuntimeError(
+            "No se encontró ffprobe en el runner. "
+            "Es necesario para determinar la duración "
+            "real del preview."
+        )
+
+    command = [
+
+        ffprobe,
+
+        "-v",
+        "error",
+
+        "-show_entries",
+        "format=duration",
+
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+
+        str(audio_path)
+    ]
+
+    process = subprocess.run(
+
+        command,
+
+        capture_output=True,
+
+        text=True
+    )
+
+
+    if process.returncode != 0:
+
+        error = (
+            process.stderr
+            or
+            "Error desconocido."
+        ).strip()
+
+        raise RuntimeError(
+            "ffprobe no pudo determinar la duración "
+            f"del preview: {error}"
+        )
+
+
+    raw_duration = (
+        process.stdout
+        or ""
+    ).strip()
+
+
+    try:
+
+        duration_seconds = float(
+            raw_duration
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        raise RuntimeError(
+            "ffprobe devolvió una duración inválida: "
+            f"{raw_duration}"
+        )
+
+
+    if duration_seconds <= 0:
+
+        raise RuntimeError(
+            "La duración real del preview debe ser "
+            "mayor que cero."
+        )
+
+
+    duration_integer = int(
+        round(
+            duration_seconds
+        )
+    )
+
+
+    if duration_integer <= 0:
+
+        duration_integer = 1
+
+
+    return duration_integer
+
+
 def enviar_preview(
     token,
     chat_id,
     mensaje,
-    preview_path
+    preview_path,
+    preview_duration
 ):
 
     boton = mensaje["boton"]
@@ -265,30 +381,16 @@ def enviar_preview(
             )
         ).strip()[:64],
 
+        "duration": str(
+            preview_duration
+        ),
+
         "reply_markup": json.dumps(
             reply_markup,
             ensure_ascii=False
         )
     }
 
-    duracion = mensaje.get(
-        "duracion_segundos"
-    )
-
-    if duracion:
-
-        try:
-
-            data["duration"] = int(
-                float(duracion)
-            )
-
-        except (
-            TypeError,
-            ValueError
-        ):
-
-            pass
 
     with open(
         preview_path,
@@ -400,19 +502,62 @@ def main():
             mensaje_2["preview"]
         )
 
+        preview_size = (
+            preview_path.stat().st_size
+        )
+
         print(
             "✓ Preview descargado."
         )
 
         print(
             f"  Tamaño: "
-            f"{preview_path.stat().st_size} bytes"
+            f"{preview_size} bytes"
         )
 
         print(
             f"  Fuente: "
             f"{mensaje_2['preview_fuente']}"
         )
+
+        # ====================================
+        # DURACIÓN REAL DEL PREVIEW
+        # ====================================
+
+        print("")
+        print(
+            "Detectando duración real del preview..."
+        )
+
+        preview_duration = (
+            obtener_duracion_archivo(
+                preview_path
+            )
+        )
+
+        print(
+            "✓ Duración real del preview:"
+        )
+
+        print(
+            f"  {preview_duration} segundos"
+        )
+
+        # Mostrar también la duración completa
+        # para dejar claro que son valores diferentes.
+
+        duracion_cancion = (
+            mensaje_2.get(
+                "duracion_segundos"
+            )
+        )
+
+        if duracion_cancion:
+
+            print(
+                "  Duración completa de la canción:"
+                f" {duracion_cancion} segundos"
+            )
 
         # ====================================
         # MENSAJE 2
@@ -427,7 +572,8 @@ def main():
             token,
             chat_id,
             mensaje_2,
-            preview_path
+            preview_path,
+            preview_duration
         )
 
         audio_message_id = (
@@ -469,6 +615,12 @@ def main():
                 mensaje_2[
                     "preview_fuente"
                 ],
+
+            "preview_duracion_segundos":
+                preview_duration,
+
+            "duracion_cancion_segundos":
+                duracion_cancion,
 
             "boton":
                 mensaje_2[
