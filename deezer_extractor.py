@@ -90,6 +90,44 @@ def format_duration(seconds):
     return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
+def build_publication_title(title_short, title_version=None):
+    """
+    Construye el título que utilizaremos como título oficial
+    dentro de nuestro sistema.
+
+    Ejemplo:
+
+        title_short  = "Le Metí"
+        title_version = "(Prod. by El Bandolero)"
+
+    Resultado:
+
+        "Le Metí (Prod. by El Bandolero)"
+
+    Si no existe title_version, se utiliza solamente title_short.
+    """
+
+    title_short = str(title_short or "").strip()
+    title_version = str(title_version or "").strip()
+
+    if not title_short:
+        return title_version or ""
+
+    if not title_version:
+        return title_short
+
+    # Evitar duplicar la versión si Deezer ya la incluye
+    # dentro del título corto.
+    if title_version.lower() in title_short.lower():
+        return title_short
+
+    # Evitar duplicar el título completo.
+    if title_short.lower() in title_version.lower():
+        return title_version
+
+    return f"{title_short} {title_version}".strip()
+
+
 def get_artists(data):
     """
     Obtiene todos los artistas principales desde contributors.
@@ -208,6 +246,40 @@ def get_publication_name(album_data, release_type):
     return "EP" if release_type == "ep" else "Álbum"
 
 
+def get_track_title_data(track):
+    """
+    Obtiene el título limpio y el título editorial completo.
+
+    Deezer proporciona normalmente:
+
+        title_short
+        title_version
+
+    Nosotros conservamos ambos conceptos:
+
+        titulo
+        titulo_publicacion
+    """
+
+    titulo = (
+        track.get("title_short")
+        or track.get("title")
+        or ""
+    )
+
+    title_version = (
+        track.get("title_version")
+        or ""
+    )
+
+    titulo_publicacion = build_publication_title(
+        titulo,
+        title_version
+    )
+
+    return titulo, titulo_publicacion
+
+
 def build_track_data(track, album_data=None, deezer_url=None):
     """
     Convierte la información de un track de Deezer al formato
@@ -228,12 +300,8 @@ def build_track_data(track, album_data=None, deezer_url=None):
     if not artistas and album_data:
         artistas = get_artists(album_data)
 
-    # Título limpio.
-    titulo = (
-        track.get("title_short")
-        or track.get("title")
-        or ""
-    )
+    # Título limpio + título editorial completo.
+    titulo, titulo_publicacion = get_track_title_data(track)
 
     fecha_original = (
         track.get("release_date")
@@ -272,6 +340,7 @@ def build_track_data(track, album_data=None, deezer_url=None):
     result = {
         "artistas": artistas,
         "titulo": titulo,
+        "titulo_publicacion": titulo_publicacion,
         "nombre_publicacion": nombre_publicacion,
         "duracion": duracion,
         "fecha": fecha,
@@ -338,6 +407,7 @@ def extract_album(album_id, deezer_url=None):
     # - preview
     # - contributors
     # - duración exacta
+    # - title_version
     #
     if release_type == "single" and len(tracks) >= 1:
 
@@ -396,10 +466,8 @@ def extract_album(album_id, deezer_url=None):
         if not artistas:
             artistas = album_artists
 
-        titulo = (
-            track.get("title_short")
-            or track.get("title")
-            or ""
+        titulo, titulo_publicacion = get_track_title_data(
+            track
         )
 
         track_fecha = format_date(
@@ -410,6 +478,7 @@ def extract_album(album_id, deezer_url=None):
         formatted_tracks.append({
             "artistas": artistas,
             "titulo": titulo,
+            "titulo_publicacion": titulo_publicacion,
             "nombre_publicacion": nombre_publicacion,
             "duracion": format_duration(
                 track.get("duration")
@@ -427,6 +496,7 @@ def extract_album(album_id, deezer_url=None):
     result = {
         "artistas": album_artists,
         "titulo": album.get("title") or "",
+        "titulo_publicacion": album.get("title") or "",
         "nombre_publicacion": nombre_publicacion,
         "duracion": None,
         "fecha": fecha,
