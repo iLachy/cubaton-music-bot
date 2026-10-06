@@ -11,6 +11,8 @@ import requests
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 
+VERSION = "2026-10-06-preview-object-v2"
+
 
 def cargar_json(ruta):
     with open(ruta, "r", encoding="utf-8") as archivo:
@@ -49,7 +51,8 @@ def telegram_request(token, metodo, data=None, files=None):
     except Exception:
         raise RuntimeError(
             f"Telegram devolvió una respuesta no JSON "
-            f"(HTTP {respuesta.status_code}): {respuesta.text[:500]}"
+            f"(HTTP {respuesta.status_code}): "
+            f"{respuesta.text[:500]}"
         )
 
     if not respuesta.ok or not resultado.get("ok"):
@@ -91,37 +94,73 @@ def enviar_portada(token, chat_id, mensaje):
 
 def obtener_preview_url(mensaje):
     """
-    Obtiene la URL del preview aceptando las dos estructuras:
+    Obtiene la URL del preview.
 
-    1. audio = "https://..."
-    2. audio = {
-           "url": "https://...",
-           "fuente": "Apple Music"
-       }
+    Estructura actual:
+        "audio": {
+            "url": "https://...",
+            "fuente": "Apple Music"
+        }
+
+    También acepta estructuras anteriores:
+        "audio": "https://..."
+
+    Y como compatibilidad adicional:
+        "preview": "https://..."
     """
 
     audio = mensaje.get("audio")
 
+    # ---------------------------------------------------------
+    # Estructura actual:
+    #
+    # "audio": {
+    #     "url": "...",
+    #     "fuente": "Apple Music"
+    # }
+    # ---------------------------------------------------------
+
     if isinstance(audio, dict):
         preview_url = audio.get("url")
-    else:
-        preview_url = audio
 
-    if not preview_url:
-        raise RuntimeError(
-            "Falta el preview del mensaje 2."
-        )
+        if preview_url:
+            return preview_url
 
-    return preview_url
+    # ---------------------------------------------------------
+    # Estructura anterior:
+    #
+    # "audio": "https://..."
+    # ---------------------------------------------------------
+
+    if isinstance(audio, str) and audio.strip():
+        return audio.strip()
+
+    # ---------------------------------------------------------
+    # Compatibilidad adicional:
+    #
+    # "preview": "https://..."
+    # ---------------------------------------------------------
+
+    preview = mensaje.get("preview")
+
+    if isinstance(preview, str) and preview.strip():
+        return preview.strip()
+
+    raise RuntimeError(
+        "Falta el preview del mensaje 2."
+    )
 
 
 def obtener_fuente_preview(mensaje):
     audio = mensaje.get("audio")
 
     if isinstance(audio, dict):
-        return audio.get("fuente")
+        fuente = audio.get("fuente")
 
-    return None
+        if fuente:
+            return fuente
+
+    return mensaje.get("preview_fuente")
 
 
 def descargar_preview(preview_url):
@@ -149,25 +188,27 @@ def descargar_preview(preview_url):
         )
 
     content_type = (
-        respuesta.headers.get("Content-Type", "")
-        .lower()
+        respuesta.headers.get(
+            "Content-Type",
+            ""
+        ).lower()
     )
 
     content_disposition = (
-        respuesta.headers.get("Content-Disposition", "")
-        .lower()
+        respuesta.headers.get(
+            "Content-Disposition",
+            ""
+        ).lower()
     )
 
-    # Apple Music normalmente devuelve M4A/AAC.
-    # Deezer normalmente devuelve MP3.
+    # Apple Music normalmente utiliza M4A/AAC.
+    # Deezer normalmente utiliza MP3.
     suffix = ".m4a"
 
     if (
         "audio/mpeg" in content_type
         or "audio/mp3" in content_type
         or ".mp3" in content_disposition
-        or "filename=" in content_disposition
-        and ".mp3" in content_disposition
     ):
         suffix = ".mp3"
 
@@ -179,23 +220,25 @@ def descargar_preview(preview_url):
     try:
         archivo_temporal.write(contenido)
         archivo_temporal.flush()
-        ruta = Path(archivo_temporal.name)
+        ruta = Path(
+            archivo_temporal.name
+        )
     finally:
         archivo_temporal.close()
 
     print("✓ Preview descargado.")
-    print(f"  Tamaño: {len(contenido)} bytes")
+    print(
+        f"  Tamaño: {len(contenido)} bytes"
+    )
 
     return ruta
 
 
 def obtener_duracion_archivo(audio_path):
     """
-    Obtiene la duración REAL del archivo de preview.
+    Obtiene la duración REAL del archivo descargado.
 
-    Esto es importante porque duracion_segundos representa
-    la duración completa de la canción, mientras que el
-    preview descargado normalmente dura unos 30 segundos.
+    No utiliza duracion_segundos de la canción completa.
     """
 
     ffprobe = shutil.which("ffprobe")
@@ -227,7 +270,8 @@ def obtener_duracion_archivo(audio_path):
 
     if resultado.returncode != 0:
         raise RuntimeError(
-            "ffprobe no pudo determinar la duración del preview: "
+            "ffprobe no pudo determinar la duración "
+            "del preview: "
             + resultado.stderr.strip()
         )
 
@@ -235,19 +279,24 @@ def obtener_duracion_archivo(audio_path):
 
     if not valor:
         raise RuntimeError(
-            "ffprobe no devolvió una duración para el preview."
+            "ffprobe no devolvió una duración "
+            "para el preview."
         )
 
     try:
-        duracion = int(round(float(valor)))
+        duracion = int(
+            round(float(valor))
+        )
     except ValueError:
         raise RuntimeError(
-            f"Duración inválida devuelta por ffprobe: {valor}"
+            f"Duración inválida devuelta por "
+            f"ffprobe: {valor}"
         )
 
     if duracion <= 0:
         raise RuntimeError(
-            f"La duración real del preview es inválida: {duracion}"
+            f"La duración real del preview "
+            f"es inválida: {duracion}"
         )
 
     return duracion
@@ -260,16 +309,32 @@ def enviar_preview(
     preview_path,
     preview_duration
 ):
-    title = mensaje.get("title", "")
-    performer = mensaje.get("performer", "")
+    title = mensaje.get(
+        "title",
+        ""
+    )
 
-    reply_markup = mensaje.get("reply_markup")
+    performer = mensaje.get(
+        "performer",
+        ""
+    )
+
+    reply_markup = mensaje.get(
+        "reply_markup"
+    )
 
     data = {
         "chat_id": chat_id,
         "title": title,
         "performer": performer,
-        "duration": str(preview_duration)
+
+        # IMPORTANTE:
+        # Aquí se envía la duración REAL del
+        # archivo de preview, NO la duración
+        # completa de la canción.
+        "duration": str(
+            preview_duration
+        )
     }
 
     if reply_markup:
@@ -278,7 +343,11 @@ def enviar_preview(
             ensure_ascii=False
         )
 
-    with open(preview_path, "rb") as audio_file:
+    with open(
+        preview_path,
+        "rb"
+    ) as audio_file:
+
         files = {
             "audio": (
                 preview_path.name,
@@ -303,29 +372,61 @@ def main():
         )
         sys.exit(1)
 
-    ruta_entrada = Path(sys.argv[1])
+    ruta_entrada = Path(
+        sys.argv[1]
+    )
 
     if not ruta_entrada.exists():
         print(
-            f"ERROR: No existe el archivo: {ruta_entrada}"
+            f"ERROR: No existe el archivo: "
+            f"{ruta_entrada}"
         )
         sys.exit(1)
 
     preview_path = None
 
     try:
-        token, chat_id = obtener_configuracion()
+        # =====================================================
+        # IDENTIFICACIÓN DE VERSIÓN
+        # =====================================================
 
-        resultado = cargar_json(ruta_entrada)
+        print(
+            "telegram_publisher.py"
+        )
+
+        print(
+            f"Versión: {VERSION}"
+        )
+
+        print(
+            "========================================"
+        )
+
+        # =====================================================
+        # CONFIGURACIÓN
+        # =====================================================
+
+        token, chat_id = (
+            obtener_configuracion()
+        )
+
+        resultado = cargar_json(
+            ruta_entrada
+        )
 
         if not resultado.get("ok"):
             raise RuntimeError(
-                "telegram_result.json indica que el resultado "
-                "no es válido."
+                "telegram_result.json indica "
+                "que el resultado no es válido."
             )
 
-        mensaje_1 = resultado.get("mensaje_1")
-        mensaje_2 = resultado.get("mensaje_2")
+        mensaje_1 = resultado.get(
+            "mensaje_1"
+        )
+
+        mensaje_2 = resultado.get(
+            "mensaje_2"
+        )
 
         if not mensaje_1:
             raise RuntimeError(
@@ -337,39 +438,64 @@ def main():
                 "Falta el mensaje 2."
             )
 
-        # =========================================================
+        # =====================================================
         # MENSAJE 1
-        # =========================================================
+        # =====================================================
 
-        print("PUBLICANDO PRUEBA EN TELEGRAM")
-        print("1/2 Enviando portada + caption...")
-
-        respuesta_portada = enviar_portada(
-            token,
-            chat_id,
-            mensaje_1
+        print(
+            "PUBLICANDO PRUEBA EN TELEGRAM"
         )
 
-        mensaje_portada = respuesta_portada.get(
-            "result",
-            {}
+        print(
+            "1/2 Enviando portada + caption..."
         )
 
-        print("✓ Mensaje de portada enviado.")
+        respuesta_portada = (
+            enviar_portada(
+                token,
+                chat_id,
+                mensaje_1
+            )
+        )
+
+        mensaje_portada = (
+            respuesta_portada.get(
+                "result",
+                {}
+            )
+        )
+
+        print(
+            "✓ Mensaje de portada enviado."
+        )
+
         print(
             f"  message_id: "
             f"{mensaje_portada.get('message_id')}"
         )
 
-        # =========================================================
+        # =====================================================
         # PREVIEW
-        # =========================================================
+        # =====================================================
 
-        preview_url = obtener_preview_url(mensaje_2)
-        preview_fuente = obtener_fuente_preview(mensaje_2)
+        preview_url = (
+            obtener_preview_url(
+                mensaje_2
+            )
+        )
 
-        preview_path = descargar_preview(
-            preview_url
+        preview_fuente = (
+            obtener_fuente_preview(
+                mensaje_2
+            )
+        )
+
+        print("")
+        print(
+            "Preview detectado:"
+        )
+        print(
+            f"  URL: {preview_url}"
         )
 
         if preview_fuente:
@@ -377,106 +503,143 @@ def main():
                 f"  Fuente: {preview_fuente}"
             )
 
-        # =========================================================
-        # DURACIÓN REAL DEL PREVIEW
-        # =========================================================
+        preview_path = (
+            descargar_preview(
+                preview_url
+            )
+        )
+
+        # =====================================================
+        # DURACIÓN REAL
+        # =====================================================
 
         print("")
         print(
-            "Detectando duración real del preview..."
+            "Detectando duración real "
+            "del preview..."
         )
 
-        preview_duration = obtener_duracion_archivo(
-            preview_path
+        preview_duration = (
+            obtener_duracion_archivo(
+                preview_path
+            )
         )
 
-        duracion_cancion = mensaje_2.get(
-            "duracion_segundos"
+        duracion_cancion = (
+            mensaje_2.get(
+                "duracion_segundos"
+            )
         )
 
-        print("✓ Duración real del preview:")
+        print(
+            "✓ Duración real del preview:"
+        )
+
         print(
             f"  {preview_duration} segundos"
         )
 
         if duracion_cancion is not None:
             print(
-                "  Duración completa de la canción: "
-                f"{duracion_cancion} segundos"
+                "  Duración completa de la "
+                f"canción: {duracion_cancion} segundos"
             )
 
-        # =========================================================
+        # =====================================================
         # MENSAJE 2
-        # =========================================================
+        # =====================================================
 
         print("")
         print(
             "2/2 Enviando preview + botón..."
         )
 
-        respuesta_preview = enviar_preview(
-            token,
-            chat_id,
-            mensaje_2,
-            preview_path,
-            preview_duration
+        respuesta_preview = (
+            enviar_preview(
+                token,
+                chat_id,
+                mensaje_2,
+                preview_path,
+                preview_duration
+            )
         )
 
-        mensaje_preview = respuesta_preview.get(
-            "result",
-            {}
+        mensaje_preview = (
+            respuesta_preview.get(
+                "result",
+                {}
+            )
         )
 
-        print("✓ Mensaje de preview enviado.")
+        print(
+            "✓ Mensaje de preview enviado."
+        )
+
         print(
             f"  message_id: "
             f"{mensaje_preview.get('message_id')}"
         )
 
-        # =========================================================
-        # RESULTADO FINAL
-        # =========================================================
+        # =====================================================
+        # BOTÓN
+        # =====================================================
 
         boton = None
 
-        reply_markup = mensaje_2.get(
-            "reply_markup"
+        reply_markup = (
+            mensaje_2.get(
+                "reply_markup"
+            )
         )
 
         if reply_markup:
-            filas = reply_markup.get(
-                "inline_keyboard",
-                []
+            filas = (
+                reply_markup.get(
+                    "inline_keyboard",
+                    []
+                )
             )
 
             if filas and filas[0]:
                 boton = filas[0][0]
 
+        # =====================================================
+        # RESULTADO FINAL
+        # =====================================================
+
         resultado_final = {
             "ok": True,
             "chat_id": chat_id,
             "mensaje_portada": {
-                "message_id": mensaje_portada.get(
-                    "message_id"
-                )
+                "message_id":
+                    mensaje_portada.get(
+                        "message_id"
+                    )
             },
             "mensaje_preview": {
-                "message_id": mensaje_preview.get(
-                    "message_id"
-                )
+                "message_id":
+                    mensaje_preview.get(
+                        "message_id"
+                    )
             },
-            "preview_fuente": preview_fuente,
-            "preview_duracion_segundos": preview_duration,
-            "duracion_cancion_segundos": duracion_cancion,
+            "preview_fuente":
+                preview_fuente,
+            "preview_duracion_segundos":
+                preview_duration,
+            "duracion_cancion_segundos":
+                duracion_cancion,
             "boton": boton
         }
 
         print("")
-        print(json.dumps(
-            resultado_final,
-            ensure_ascii=False,
-            indent=2
-        ))
+
+        print(
+            json.dumps(
+                resultado_final,
+                ensure_ascii=False,
+                indent=2
+            )
+        )
 
         print("")
         print(
@@ -484,11 +647,16 @@ def main():
         )
 
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(
+            f"ERROR: {e}"
+        )
         sys.exit(1)
 
     finally:
-        if preview_path and preview_path.exists():
+        if (
+            preview_path
+            and preview_path.exists()
+        ):
             try:
                 preview_path.unlink()
             except Exception:
