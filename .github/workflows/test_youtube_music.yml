@@ -1,0 +1,71 @@
+name: Test YouTube Music Search
+
+on:
+  workflow_dispatch:
+    inputs:
+      titulo:
+        description: "Título de la canción"
+        required: true
+        type: string
+
+      artistas:
+        description: "Artistas separados por coma"
+        required: true
+        type: string
+
+      isrc:
+        description: "ISRC (opcional)"
+        required: false
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Mostrar archivo del buscador
+        run: |
+          echo "========================================"
+          echo "YOUTUBE MUSIC SEARCH"
+          echo "========================================"
+
+          sed -n '1,400p' youtube_music_search.py
+
+      - name: Instalar dependencia
+        run: |
+          python -m pip install --upgrade pip
+          pip install ytmusicapi
+
+      - name: Mostrar datos de prueba
+        run: |
+          echo "========================================"
+          echo "DATOS DE ENTRADA"
+          echo "========================================"
+
+          echo "Título:"
+          echo "${{ inputs.titulo }}"
+
+          echo ""
+
+          echo "Artistas:"
+          echo "${{ inputs.artistas }}"
+
+          echo ""
+
+          echo "ISRC:"
+          echo "${{ inputs.isrc }}"
+
+      - name: Buscar en YouTube Music
+        run: |
+          echo "========================================"
+          echo "BUSCANDO EN YOUTUBE MUSIC"
+          echo "========================================"
+
+          python youtube_music_search.py \
+            "${{ inputs.titulo }}" \
+            "${{ inputs.artistas }}" \
+            "${{ inputs.isrc }}"
