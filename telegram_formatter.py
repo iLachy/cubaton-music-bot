@@ -13,7 +13,7 @@ nombre_publicacion = datos.get("nombre_publicacion", "")
 duracion = datos.get("duracion", "")
 fecha = datos.get("fecha", "")
 
-# Convertir DD-MM-YYYY → DD/MM/YYYY
+# Convertir DD-MM-YYYY a DD/MM/YYYY
 if fecha:
     try:
         partes = fecha.split("-")
@@ -112,11 +112,13 @@ try:
     datos = cargar_json(ruta_entrada)
     resultado = construir_resultado(datos)
 
-    print(json.dumps(
-        resultado,
-        ensure_ascii=False,
-        indent=2
-    ))
+    print(
+        json.dumps(
+            resultado,
+            ensure_ascii=False,
+            indent=2
+        )
+    )
 
 except Exception as e:
     print(f"ERROR: {e}")
