@@ -46,10 +46,6 @@ jobs:
 
           echo ""
 
-      # ======================================================
-      # DEEZER
-      # ======================================================
-
       - name: Extraer información de Deezer
         run: |
 
@@ -65,10 +61,6 @@ jobs:
           echo "--- RESULTADO DEEZER ---"
           cat deezer_result.json
           echo ""
-
-      # ======================================================
-      # PREPARAR PISTA
-      # ======================================================
 
       - name: Preparar datos de la pista
         env:
@@ -224,10 +216,6 @@ jobs:
 
                   sys.exit(1)
 
-          # --------------------------------------------------
-          # NORMALIZAR ARTISTAS
-          # --------------------------------------------------
-
           artistas_raw = (
               track.get(
                   "artistas"
@@ -266,10 +254,6 @@ jobs:
 
               artistas = []
 
-          # --------------------------------------------------
-          # DATOS MAESTROS
-          # --------------------------------------------------
-
           titulo_publicacion = (
               track.get(
                   "titulo_publicacion"
@@ -300,10 +284,6 @@ jobs:
               )
           )
 
-          # --------------------------------------------------
-          # VALIDACIÓN
-          # --------------------------------------------------
-
           if not titulo_publicacion:
 
               print(
@@ -319,10 +299,6 @@ jobs:
               )
 
               sys.exit(1)
-
-          # --------------------------------------------------
-          # ENTRADA COMÚN
-          # --------------------------------------------------
 
           music_input = {
 
@@ -377,10 +353,6 @@ jobs:
           print("")
 
           PY
-
-      # ======================================================
-      # YOUTUBE MUSIC
-      # ======================================================
 
       - name: Buscar en YouTube Music
         run: |
@@ -512,10 +484,6 @@ jobs:
 
           PY
 
-      # ======================================================
-      # APPLE MUSIC
-      # ======================================================
-
       - name: Buscar en Apple Music
         run: |
 
@@ -589,10 +557,6 @@ jobs:
                   )
               )
 
-          # --------------------------------------------------
-          # STOREFRONT
-          # --------------------------------------------------
-
           command.append(
               "us"
           )
@@ -654,10 +618,6 @@ jobs:
 
           PY
 
-      # ======================================================
-      # CONSTRUIR RESULTADO FINAL
-      # ======================================================
-
       - name: Construir resultado final
         run: |
 
@@ -665,10 +625,6 @@ jobs:
 
           import json
           import sys
-
-          # --------------------------------------------------
-          # DEEZER
-          # --------------------------------------------------
 
           with open(
               "deezer_result.json",
@@ -693,10 +649,6 @@ jobs:
               or {}
           )
 
-          # --------------------------------------------------
-          # YOUTUBE MUSIC
-          # --------------------------------------------------
-
           with open(
               "youtube_result.json",
               "r",
@@ -712,10 +664,6 @@ jobs:
               or {}
           )
 
-          # --------------------------------------------------
-          # APPLE MUSIC
-          # --------------------------------------------------
-
           with open(
               "apple_result.json",
               "r",
@@ -730,10 +678,6 @@ jobs:
               )
               or {}
           )
-
-          # --------------------------------------------------
-          # ESTADO ISRC APPLE
-          # --------------------------------------------------
 
           apple_isrc = (
               apple.get(
@@ -773,10 +717,6 @@ jobs:
               apple_isrc_status = (
                   "no_disponible"
               )
-
-          # --------------------------------------------------
-          # PREVIEW
-          # --------------------------------------------------
 
           apple_preview = (
               apple.get(
@@ -818,10 +758,6 @@ jobs:
 
               preview_source = ""
 
-          # --------------------------------------------------
-          # ESCUCHAR
-          # --------------------------------------------------
-
           youtube_url = (
               youtube.get(
                   "youtube_music_url"
@@ -855,10 +791,6 @@ jobs:
               escuchar_fuente = (
                   "Deezer"
               )
-
-          # --------------------------------------------------
-          # RESULTADO FINAL
-          # --------------------------------------------------
 
           final = {
 
@@ -1034,10 +966,6 @@ jobs:
                   }
           }
 
-          # --------------------------------------------------
-          # GUARDAR
-          # --------------------------------------------------
-
           with open(
               "publication_result.json",
               "w",
@@ -1050,10 +978,6 @@ jobs:
                   ensure_ascii=False,
                   indent=2
               )
-
-          # --------------------------------------------------
-          # MOSTRAR
-          # --------------------------------------------------
 
           print("")
           print(
@@ -1080,13 +1004,8 @@ jobs:
 
           print("")
 
-          # --------------------------------------------------
-          # VALIDACIÓN
-          # --------------------------------------------------
-
           errors = []
 
-          # Deezer
           if not final[
               "titulo_publicacion"
           ]:
@@ -1127,7 +1046,6 @@ jobs:
                   "Falta URL de Deezer."
               )
 
-          # YouTube
           if not final[
               "youtube_music"
           ][
@@ -1158,7 +1076,6 @@ jobs:
                   "La coincidencia de YouTube Music no es compatible con Deezer."
               )
 
-          # Apple
           if not final[
               "apple_music"
           ][
@@ -1189,7 +1106,6 @@ jobs:
                   "La coincidencia de Apple Music no es compatible con Deezer."
               )
 
-          # Preview
           if not final[
               "preview"
           ][
@@ -1245,5 +1161,149 @@ jobs:
           )
 
           print("")
+
+          PY
+
+      - name: Generar publicación de Telegram
+        run: |
+
+          echo "========================================"
+          echo "GENERANDO PUBLICACIÓN DE TELEGRAM"
+          echo "========================================"
+
+          python telegram_formatter.py \
+            publication_result.json \
+            > telegram_result.json
+
+          echo ""
+          echo "--- RESULTADO TELEGRAM ---"
+          cat telegram_result.json
+          echo ""
+
+          python - <<'PY'
+
+          import json
+          import sys
+
+          with open(
+              "telegram_result.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+
+              result = json.load(f)
+
+          texto = (
+              result.get(
+                  "texto"
+              )
+              or ""
+          )
+
+          botones = (
+              result.get(
+                  "botones"
+              )
+              or []
+          )
+
+          if not texto:
+
+              print(
+                  "ERROR: No se generó el texto de Telegram."
+              )
+
+              sys.exit(1)
+
+          lineas = texto.splitlines()
+
+          if len(lineas) != 5:
+
+              print(
+                  "ERROR: El texto de Telegram debe tener exactamente 5 líneas."
+              )
+
+              sys.exit(1)
+
+          prefijos = [
+              "🎤 ",
+              "🎵 ",
+              "📀 ",
+              "⏳️ ",
+              "🗓 "
+          ]
+
+          for indice, prefijo in enumerate(prefijos):
+
+              if not lineas[indice].startswith(prefijo):
+
+                  print(
+                      "ERROR: Formato incorrecto en la línea "
+                      f"{indice + 1}."
+                  )
+
+                  print(
+                      f"Esperado: {prefijo}"
+                  )
+
+                  print(
+                      f"Recibido: {lineas[indice]}"
+                  )
+
+                  sys.exit(1)
+
+          if not botones:
+
+              print(
+                  "ERROR: No se generaron botones."
+              )
+
+              sys.exit(1)
+
+          print(
+              "========================================"
+          )
+
+          print(
+              "PUBLICACIÓN DE TELEGRAM"
+          )
+
+          print(
+              "========================================"
+          )
+
+          print("")
+
+          print(texto)
+
+          print("")
+
+          print(
+              "BOTONES:"
+          )
+
+          for boton in botones:
+
+              print(
+                  f" - {boton.get('text', '')}"
+              )
+
+              print(
+                  f"   {boton.get('url', '')}"
+              )
+
+          print("")
+
+          print(
+              "========================================"
+          )
+
+          print(
+              "PRUEBA DEL FORMATO DE TELEGRAM EXITOSA"
+          )
+
+          print(
+              "========================================"
+          )
 
           PY
