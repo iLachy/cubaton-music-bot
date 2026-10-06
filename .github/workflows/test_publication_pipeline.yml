@@ -145,6 +145,7 @@ jobs:
                           candidate_normalized
                           == requested_normalized
                       ):
+
                           track = candidate
                           break
 
@@ -171,6 +172,7 @@ jobs:
                               candidate_normalized
                               == requested_normalized
                           ):
+
                               track = candidate
                               break
 
@@ -734,9 +736,7 @@ jobs:
 
           if apple_preview:
 
-              preview_url = (
-                  apple_preview
-              )
+              preview_url = apple_preview
 
               preview_source = (
                   "Apple Music"
@@ -744,9 +744,7 @@ jobs:
 
           elif deezer_preview:
 
-              preview_url = (
-                  deezer_preview
-              )
+              preview_url = deezer_preview
 
               preview_source = (
                   "Deezer"
@@ -774,9 +772,7 @@ jobs:
 
           if youtube_url:
 
-              escuchar_url = (
-                  youtube_url
-              )
+              escuchar_url = youtube_url
 
               escuchar_fuente = (
                   "YouTube Music"
@@ -784,13 +780,17 @@ jobs:
 
           else:
 
-              escuchar_url = (
-                  deezer_url
-              )
+              escuchar_url = deezer_url
 
               escuchar_fuente = (
                   "Deezer"
               )
+
+          duracion_segundos = (
+              deezer.get(
+                  "duracion_segundos"
+              )
+          )
 
           final = {
 
@@ -824,9 +824,18 @@ jobs:
                   )
                   or "",
 
+              "duracion_segundos":
+                  duracion_segundos,
+
               "fecha":
                   deezer.get(
                       "fecha"
+                  )
+                  or "",
+
+              "portada":
+                  deezer.get(
+                      "portada"
                   )
                   or "",
 
@@ -838,7 +847,6 @@ jobs:
 
               "preview":
                   {
-
                       "url":
                           preview_url,
 
@@ -848,7 +856,6 @@ jobs:
 
               "escuchar":
                   {
-
                       "url":
                           escuchar_url,
 
@@ -1039,6 +1046,14 @@ jobs:
               )
 
           if not final[
+              "portada"
+          ]:
+
+              errors.append(
+                  "Falta portada."
+              )
+
+          if not final[
               "deezer_url"
           ]:
 
@@ -1193,72 +1208,96 @@ jobs:
 
               result = json.load(f)
 
-          texto = (
+          mensaje_1 = (
               result.get(
-                  "texto"
+                  "mensaje_1"
               )
-              or ""
+              or {}
           )
 
-          botones = (
+          mensaje_2 = (
               result.get(
-                  "botones"
+                  "mensaje_2"
               )
-              or []
+              or {}
           )
 
-          if not texto:
+          if mensaje_1.get("tipo") != "photo":
 
               print(
-                  "ERROR: No se generó el texto de Telegram."
+                  "ERROR: El mensaje 1 debe ser de tipo photo."
               )
 
               sys.exit(1)
 
-          lineas = texto.splitlines()
-
-          if len(lineas) != 5:
+          if not mensaje_1.get("photo"):
 
               print(
-                  "ERROR: El texto de Telegram debe tener exactamente 5 líneas."
+                  "ERROR: Falta la portada del mensaje 1."
               )
 
               sys.exit(1)
 
-          prefijos = [
-              "🎤 ",
-              "🎵 ",
-              "📀 ",
-              "⏳️ ",
-              "🗓 "
-          ]
-
-          for indice, prefijo in enumerate(prefijos):
-
-              if not lineas[indice].startswith(prefijo):
-
-                  print(
-                      "ERROR: Formato incorrecto en la línea "
-                      f"{indice + 1}."
-                  )
-
-                  print(
-                      f"Esperado: {prefijo}"
-                  )
-
-                  print(
-                      f"Recibido: {lineas[indice]}"
-                  )
-
-                  sys.exit(1)
-
-          if not botones:
+          if not mensaje_1.get("caption"):
 
               print(
-                  "ERROR: No se generaron botones."
+                  "ERROR: Falta el caption del mensaje 1."
               )
 
               sys.exit(1)
+
+          if mensaje_1.get("parse_mode") != "HTML":
+
+              print(
+                  "ERROR: El mensaje 1 debe utilizar HTML."
+              )
+
+              sys.exit(1)
+
+          if mensaje_2.get("tipo") != "audio":
+
+              print(
+                  "ERROR: El mensaje 2 debe ser de tipo audio."
+              )
+
+              sys.exit(1)
+
+          if not mensaje_2.get("preview"):
+
+              print(
+                  "ERROR: Falta el preview del mensaje 2."
+              )
+
+              sys.exit(1)
+
+          boton = (
+              mensaje_2.get(
+                  "boton"
+              )
+              or {}
+          )
+
+          if not boton.get("text"):
+
+              print(
+                  "ERROR: Falta el texto del botón."
+              )
+
+              sys.exit(1)
+
+          if not boton.get("url"):
+
+              print(
+                  "ERROR: Falta la URL del botón."
+              )
+
+              sys.exit(1)
+
+          caption = (
+              mensaje_1[
+                  "caption"
+              ]
+          )
 
           print(
               "========================================"
@@ -1273,27 +1312,40 @@ jobs:
           )
 
           print("")
-
-          print(texto)
-
-          print("")
-
           print(
-              "BOTONES:"
+              "MENSAJE 1 — PORTADA + CAPTION"
           )
 
-          for boton in botones:
-
-              print(
-                  f" - {boton.get('text', '')}"
-              )
-
-              print(
-                  f"   {boton.get('url', '')}"
-              )
+          print("")
+          print(caption)
 
           print("")
+          print(
+              "MENSAJE 2 — PREVIEW + BOTÓN"
+          )
 
+          print("")
+          print(
+              f"Preview: "
+              f"{mensaje_2['preview']}"
+          )
+
+          print(
+              f"Fuente: "
+              f"{mensaje_2['preview_fuente']}"
+          )
+
+          print(
+              f"Botón: "
+              f"{boton['text']}"
+          )
+
+          print(
+              f"URL: "
+              f"{boton['url']}"
+          )
+
+          print("")
           print(
               "========================================"
           )
@@ -1307,3 +1359,17 @@ jobs:
           )
 
           PY
+
+      - name: Publicar prueba en Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+        run: |
+
+          echo "========================================"
+          echo "PUBLICANDO PRUEBA EN TELEGRAM"
+          echo "========================================"
+
+          python telegram_publisher.py \
+            telegram_result.json
