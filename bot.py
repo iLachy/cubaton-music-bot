@@ -2217,7 +2217,7 @@ def publicar_cancion(
         f"📀 <i>{nombre_publicacion}</i>\n"
         f"🗓 {anio}\n"
         f"\n"
-        f"<b>@Cubaton_Music"</b>
+        f"<b>@Cubaton_Music</b>"
     )
 
     # ========================================================
