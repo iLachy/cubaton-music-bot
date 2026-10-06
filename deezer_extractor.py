@@ -1,110 +1,55 @@
-#!/usr/bin/env python3
-
+import sys
 import json
 import re
-import sys
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
-
 import requests
 
 
 DEEZER_API = "https://api.deezer.com"
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/140.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
-}
+TIMEOUT = 20
 
 
-class DeezerExtractorError(Exception):
-    """Error controlado del extractor de Deezer."""
+def api_get(endpoint):
+    """
+    Realiza una petición GET a la API pública de Deezer.
+    """
+    url = f"{DEEZER_API}{endpoint}"
 
+    response = requests.get(
+        url,
+        timeout=TIMEOUT,
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        }
+    )
 
-def api_get(endpoint: str) -> Dict[str, Any]:
-    """Realiza una petición GET a la API pública de Deezer."""
+    response.raise_for_status()
 
-    url = f"{DEEZER_API}/{endpoint.lstrip('/')}"
-
-    try:
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=20,
-        )
-    except requests.RequestException as exc:
-        raise DeezerExtractorError(
-            f"No se pudo conectar con Deezer: {exc}"
-        ) from exc
-
-    if response.status_code != 200:
-        raise DeezerExtractorError(
-            f"Deezer respondió HTTP {response.status_code}"
-        )
-
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise DeezerExtractorError(
-            "Deezer no devolvió una respuesta JSON válida."
-        ) from exc
+    data = response.json()
 
     if isinstance(data, dict) and data.get("error"):
         error = data["error"]
-
-        if isinstance(error, dict):
-            message = error.get(
-                "message",
-                "Error desconocido",
-            )
-        else:
-            message = str(error)
-
-        raise DeezerExtractorError(
-            f"Error de la API de Deezer: {message}"
-        )
+        message = error.get("message", "Error desconocido de Deezer")
+        raise RuntimeError(message)
 
     return data
 
 
-def extract_deezer_id(url: str) -> tuple[str, int]:
+def parse_deezer_url(url):
     """
-    Extrae el tipo de recurso y su ID.
-
-    Soporta:
-
-        https://www.deezer.com/track/123456789
-        https://www.deezer.com/album/123456789
+    Detecta si la URL corresponde a un track o a un álbum.
     """
-
     url = url.strip()
 
-    parsed = urlparse(url)
-
-    hostname = parsed.netloc.lower()
-
-    if hostname not in {
-        "deezer.com",
-        "www.deezer.com",
-    }:
-        raise DeezerExtractorError(
-            "La URL no pertenece a Deezer."
-        )
-
     match = re.search(
-        r"/(track|album)/(\d+)",
-        parsed.path,
-        re.IGNORECASE,
+        r"deezer\.com/(?:[a-z]{2}/)?(track|album)/(\d+)",
+        url,
+        re.IGNORECASE
     )
 
     if not match:
-        raise DeezerExtractorError(
-            "La URL debe ser de una pista o álbum de Deezer."
+        raise ValueError(
+            "La URL no parece ser un enlace válido de Deezer "
+            "de tipo /track/ID o /album/ID."
         )
 
     resource_type = match.group(1).lower()
@@ -113,31 +58,24 @@ def extract_deezer_id(url: str) -> tuple[str, int]:
     return resource_type, resource_id
 
 
-def format_date(
-    date_value: Optional[str],
-) -> Optional[str]:
-    """Convierte YYYY-MM-DD a DD-MM-YYYY."""
-
-    if not date_value:
+def format_date(date_string):
+    """
+    Convierte YYYY-MM-DD a DD-MM-YYYY.
+    """
+    if not date_string:
         return None
 
     try:
-        date_obj = datetime.strptime(
-            date_value[:10],
-            "%Y-%m-%d",
-        )
-
-        return date_obj.strftime("%d-%m-%Y")
-
-    except ValueError:
-        return date_value
+        year, month, day = date_string.split("-")
+        return f"{day}-{month}-{year}"
+    except Exception:
+        return date_string
 
 
-def format_duration(
-    seconds: Any,
-) -> Optional[str]:
-    """Convierte segundos a MM:SS."""
-
+def format_duration(seconds):
+    """
+    Convierte segundos a MM:SS.
+    """
     if seconds is None:
         return None
 
@@ -146,404 +84,433 @@ def format_duration(
     except (TypeError, ValueError):
         return None
 
-    if seconds < 0:
-        return None
-
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
+    minutes = seconds // 60
     remaining_seconds = seconds % 60
 
-    if hours > 0:
-        return (
-            f"{hours:02d}:"
-            f"{minutes:02d}:"
-            f"{remaining_seconds:02d}"
-        )
-
-    return (
-        f"{minutes:02d}:"
-        f"{remaining_seconds:02d}"
-    )
+    return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
-def get_artists(
-    data: Dict[str, Any],
-) -> str:
+def get_artists(data):
     """
-    Obtiene todos los artistas acreditados.
+    Obtiene todos los artistas principales desde contributors.
 
-    Deezer proporciona los artistas colaboradores
-    mediante el campo 'contributors'.
+    Deezer puede colocar solamente al artista principal en el campo
+    'artist', mientras que 'contributors' contiene las colaboraciones.
     """
 
-    contributors = data.get("contributors")
+    contributors = data.get("contributors") or []
 
-    if not isinstance(contributors, list):
-        return ""
-
-    artists: List[str] = []
+    artists = []
 
     for contributor in contributors:
-        if not isinstance(contributor, dict):
+        role = str(contributor.get("role", "")).lower()
+
+        # Solo consideramos artistas principales.
+        if role and role != "main":
             continue
 
         name = contributor.get("name")
 
-        if not name:
-            continue
+        if name and name not in artists:
+            artists.append(name)
 
-        if name not in artists:
+    # Fallback por si contributors no existe.
+    if not artists:
+        artist = data.get("artist") or {}
+
+        name = artist.get("name")
+
+        if name:
             artists.append(name)
 
     return ", ".join(artists)
 
 
-def get_cover_url(
-    album: Dict[str, Any],
-) -> Optional[str]:
-    """Obtiene la portada de mayor resolución disponible."""
+def get_cover(data):
+    """
+    Obtiene la mejor portada disponible.
+    """
 
-    for key in (
-        "cover_xl",
-        "cover_big",
-        "cover_medium",
-        "cover",
-    ):
-        value = album.get(key)
+    possible_covers = [
+        data.get("cover_xl"),
+        data.get("cover_big"),
+        data.get("cover_medium"),
+        data.get("cover"),
+    ]
 
-        if value:
-            return value
+    for cover in possible_covers:
+        if cover:
+            return cover
+
+    album = data.get("album") or {}
+
+    possible_album_covers = [
+        album.get("cover_xl"),
+        album.get("cover_big"),
+        album.get("cover_medium"),
+        album.get("cover"),
+    ]
+
+    for cover in possible_album_covers:
+        if cover:
+            return cover
 
     return None
 
 
-def normalize_record_type(
-    record_type: Optional[str],
-) -> str:
+def get_release_type(album_data):
     """
-    Convierte el tipo devuelto por Deezer
-    a nuestro formato de publicación.
+    Obtiene el tipo interno de publicación de Deezer.
     """
 
-    if not record_type:
-        return "Álbum"
+    record_type = str(
+        album_data.get("record_type") or ""
+    ).lower()
 
-    normalized = record_type.strip().lower()
+    if record_type in ("single", "ep", "album"):
+        return record_type
 
-    mapping = {
-        "single": "Single",
-        "ep": "EP",
-        "album": "Álbum",
-    }
+    # Fallback usando la cantidad de tracks.
+    nb_tracks = album_data.get("nb_tracks")
 
-    return mapping.get(
-        normalized,
-        "Álbum",
-    )
+    try:
+        nb_tracks = int(nb_tracks)
+    except (TypeError, ValueError):
+        nb_tracks = None
 
+    if nb_tracks == 1:
+        return "single"
 
-def get_release_type(
-    album: Dict[str, Any],
-) -> str:
-    """Obtiene el tipo oficial del lanzamiento."""
-
-    return normalize_record_type(
-        album.get("record_type")
-    )
+    return "album"
 
 
-def get_track_artists(
-    track: Dict[str, Any],
-    album: Optional[Dict[str, Any]] = None,
-) -> str:
+def get_publication_name(album_data, release_type):
     """
-    Obtiene los artistas de una pista.
+    Determina qué debe aparecer en:
 
-    Prioridad:
-        1. contributors de la pista
-        2. contributors del álbum
-        3. artista principal
+        📀 Nombre de la publicación
+
+    Reglas:
+
+        Single -> "Single"
+        EP     -> nombre real del EP
+        Álbum  -> nombre real del álbum
     """
 
-    artists = get_artists(track)
+    if release_type == "single":
+        return "Single"
 
-    if artists:
-        return artists
+    publication_title = album_data.get("title")
 
-    if album:
-        artists = get_artists(album)
+    if publication_title:
+        return publication_title
 
-        if artists:
-            return artists
-
-    artist = track.get("artist")
-
-    if isinstance(artist, dict):
-        return artist.get("name", "")
-
-    return ""
+    return "EP" if release_type == "ep" else "Álbum"
 
 
-def extract_from_track(
-    track_id: int,
-) -> Dict[str, Any]:
-    """Extrae información completa de una pista."""
+def build_track_data(track, album_data=None, deezer_url=None):
+    """
+    Convierte la información de un track de Deezer al formato
+    utilizado por nuestro sistema.
+    """
 
-    track = api_get(
-        f"track/{track_id}"
-    )
+    if album_data is None:
+        album_data = track.get("album") or {}
 
-    album = track.get("album")
+    track_id = track.get("id")
 
-    if not isinstance(album, dict):
-        album = {}
+    album_id = album_data.get("id")
 
-    release_date = (
-        track.get("release_date")
-        or album.get("release_date")
-    )
+    # Artistas: preferimos contributors del track.
+    artistas = get_artists(track)
 
-    artists = get_track_artists(
-        track,
-        album,
-    )
+    # Fallback a contributors del álbum.
+    if not artistas and album_data:
+        artistas = get_artists(album_data)
 
-    title = (
+    # Título limpio.
+    titulo = (
         track.get("title_short")
         or track.get("title")
+        or ""
     )
 
-    if not title:
-        raise DeezerExtractorError(
-            "No se pudo obtener el título de la pista."
-        )
+    fecha_original = (
+        track.get("release_date")
+        or album_data.get("release_date")
+    )
+
+    fecha = format_date(fecha_original)
+
+    duracion = format_duration(
+        track.get("duration")
+    )
+
+    isrc = track.get("isrc")
+
+    preview = track.get("preview")
+
+    release_type = get_release_type(album_data)
+
+    nombre_publicacion = get_publication_name(
+        album_data,
+        release_type
+    )
+
+    # Para un single queremos conservar la URL proporcionada
+    # por el usuario. Para un track individual, si no existe,
+    # construimos su URL.
+    if deezer_url:
+        final_deezer_url = deezer_url
+    elif track_id:
+        final_deezer_url = f"https://www.deezer.com/track/{track_id}"
+    elif album_id:
+        final_deezer_url = f"https://www.deezer.com/album/{album_id}"
+    else:
+        final_deezer_url = None
 
     result = {
-        "artistas": artists,
-        "titulo": title,
-        "tipo": get_release_type(album),
-        "fecha": format_date(release_date),
-        "duracion": format_duration(
-            track.get("duration")
-        ),
-        "portada": get_cover_url(album),
-        "isrc": track.get("isrc"),
-        "preview_deezer": track.get("preview"),
-        "deezer_url": track.get(
-            "link",
-            f"https://www.deezer.com/track/{track_id}",
-        ),
-        "deezer_track_id": track.get(
-            "id",
-            track_id,
-        ),
-        "deezer_album_id": album.get(
-            "id"
-        ),
+        "artistas": artistas,
+        "titulo": titulo,
+        "nombre_publicacion": nombre_publicacion,
+        "duracion": duracion,
+        "fecha": fecha,
+        "portada": get_cover(track) or get_cover(album_data),
+        "isrc": isrc,
+        "preview_deezer": preview,
+        "deezer_url": final_deezer_url,
+        "deezer_track_id": track_id,
+        "deezer_album_id": album_id,
     }
 
     return result
 
 
-def extract_from_album(
-    album_id: int,
-) -> Dict[str, Any]:
+def extract_track(track_id, deezer_url=None):
     """
-    Extrae información de un lanzamiento
-    utilizando una URL /album/.
+    Extrae información completa de un track.
     """
 
-    album = api_get(
-        f"album/{album_id}"
+    track = api_get(f"/track/{track_id}")
+
+    album = track.get("album") or {}
+
+    # El endpoint del track contiene el álbum de forma resumida.
+    # Si tenemos ID, consultamos el álbum completo para obtener
+    # contributors, record_type, nb_tracks, etc.
+    album_id = album.get("id")
+
+    if album_id:
+        try:
+            album_full = api_get(f"/album/{album_id}")
+        except Exception:
+            album_full = album
+    else:
+        album_full = album
+
+    return build_track_data(
+        track,
+        album_full,
+        deezer_url=deezer_url
     )
 
-    tracks_data = album.get("tracks")
 
-    if not isinstance(tracks_data, dict):
-        raise DeezerExtractorError(
-            "El álbum no contiene información de sus pistas."
-        )
+def extract_album(album_id, deezer_url=None):
+    """
+    Extrae información de un álbum, EP o single.
+    """
 
-    tracks = tracks_data.get("data")
+    album = api_get(f"/album/{album_id}")
 
-    if not isinstance(tracks, list) or not tracks:
-        raise DeezerExtractorError(
-            "El álbum no contiene pistas."
-        )
+    tracks_container = album.get("tracks") or {}
+    tracks = tracks_container.get("data") or []
+
+    release_type = get_release_type(album)
 
     # ---------------------------------------------------------
-    # Caso single de una pista
+    # SINGLE
     # ---------------------------------------------------------
-
-    if len(tracks) == 1:
+    #
+    # Si el lanzamiento tiene un solo track, consultamos el
+    # endpoint completo del track para obtener:
+    #
+    # - ISRC
+    # - preview
+    # - contributors
+    # - duración exacta
+    #
+    if release_type == "single" and len(tracks) >= 1:
 
         track_id = tracks[0].get("id")
 
-        if not track_id:
-            raise DeezerExtractorError(
-                "La pista del lanzamiento no tiene ID."
+        if track_id:
+            return extract_track(
+                track_id,
+                deezer_url=deezer_url
             )
 
-        # Consultamos /track/{id} porque aquí obtenemos
-        # ISRC, contributors y preview completos.
-        result = extract_from_track(
-            int(track_id)
-        )
-
-        # La URL original proporcionada por el usuario
-        # se conserva como referencia del lanzamiento.
-        result["deezer_url"] = album.get(
-            "link",
-            f"https://www.deezer.com/album/{album_id}",
-        )
-
-        return result
-
     # ---------------------------------------------------------
-    # Caso EP / álbum con varias pistas
+    # EP / ÁLBUM
     # ---------------------------------------------------------
+    #
+    # Para publicaciones con varios tracks conservamos la
+    # información de cada canción.
+    #
 
-    artists = get_artists(album)
-
-    if not artists:
-        artist = album.get("artist")
-
-        if isinstance(artist, dict):
-            artists = artist.get(
-                "name",
-                "",
-            )
-
-    release_date = album.get(
-        "release_date"
+    nombre_publicacion = get_publication_name(
+        album,
+        release_type
     )
 
-    total_duration = album.get(
-        "duration"
+    album_artists = get_artists(album)
+
+    fecha = format_date(
+        album.get("release_date")
     )
 
+    portada = get_cover(album)
+
+    formatted_tracks = []
+
+    for track_summary in tracks:
+
+        track_id = track_summary.get("id")
+
+        full_track = None
+
+        if track_id:
+            try:
+                full_track = api_get(
+                    f"/track/{track_id}"
+                )
+            except Exception:
+                full_track = None
+
+        if full_track:
+            track = full_track
+        else:
+            track = track_summary
+
+        artistas = get_artists(track)
+
+        if not artistas:
+            artistas = album_artists
+
+        titulo = (
+            track.get("title_short")
+            or track.get("title")
+            or ""
+        )
+
+        track_fecha = format_date(
+            track.get("release_date")
+            or album.get("release_date")
+        )
+
+        formatted_tracks.append({
+            "artistas": artistas,
+            "titulo": titulo,
+            "nombre_publicacion": nombre_publicacion,
+            "duracion": format_duration(
+                track.get("duration")
+            ),
+            "fecha": track_fecha,
+            "portada": get_cover(track) or portada,
+            "isrc": track.get("isrc"),
+            "preview_deezer": track.get("preview"),
+            "deezer_track_id": track.get("id"),
+            "deezer_album_id": album_id,
+        })
+
+    # Duración del álbum/EP no se utiliza como duración de una
+    # canción. Se mantiene None a nivel de publicación.
     result = {
-        "artistas": artists,
-        "titulo": album.get(
-            "title",
-            "",
-        ),
-        "tipo": get_release_type(album),
-        "fecha": format_date(
-            release_date
-        ),
-        "duracion": format_duration(
-            total_duration
-        ),
-        "portada": get_cover_url(album),
+        "artistas": album_artists,
+        "titulo": album.get("title") or "",
+        "nombre_publicacion": nombre_publicacion,
+        "duracion": None,
+        "fecha": fecha,
+        "portada": portada,
         "isrc": None,
         "preview_deezer": None,
-        "deezer_url": album.get(
-            "link",
-            f"https://www.deezer.com/album/{album_id}",
-        ),
+        "deezer_url": deezer_url
+        or f"https://www.deezer.com/album/{album_id}",
         "deezer_track_id": None,
         "deezer_album_id": album_id,
-        "tracks": [],
+        "tracks": formatted_tracks,
     }
-
-    # Guardamos las pistas para poder procesarlas
-    # posteriormente de forma individual.
-    for track in tracks:
-
-        if not isinstance(track, dict):
-            continue
-
-        result["tracks"].append(
-            {
-                "id": track.get("id"),
-                "titulo": (
-                    track.get("title_short")
-                    or track.get("title")
-                ),
-                "duracion": format_duration(
-                    track.get("duration")
-                ),
-                "preview_deezer": track.get(
-                    "preview"
-                ),
-            }
-        )
 
     return result
 
 
-def extract_deezer(
-    url: str,
-) -> Dict[str, Any]:
-    """Función principal del extractor."""
+def extract_deezer(url):
+    """
+    Punto principal del extractor.
+    """
 
-    resource_type, resource_id = (
-        extract_deezer_id(url)
-    )
+    resource_type, resource_id = parse_deezer_url(url)
 
     if resource_type == "track":
-        return extract_from_track(
-            resource_id
+        return extract_track(
+            resource_id,
+            deezer_url=url
         )
 
     if resource_type == "album":
-        return extract_from_album(
-            resource_id
+        return extract_album(
+            resource_id,
+            deezer_url=url
         )
 
-    raise DeezerExtractorError(
-        f"Tipo de recurso no soportado: "
-        f"{resource_type}"
+    raise ValueError(
+        "Tipo de recurso Deezer no soportado."
     )
 
 
-def main() -> None:
-    """Punto de entrada para GitHub Actions."""
-
-    if len(sys.argv) != 2:
-
+def main():
+    if len(sys.argv) < 2:
         print(
-            "Uso:\n"
-            "  python deezer_extractor.py "
-            "\"https://www.deezer.com/track/123456789\""
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "Debes proporcionar una URL de Deezer."
+                    )
+                },
+                ensure_ascii=False,
+                indent=2
+            )
         )
-
         sys.exit(1)
 
     url = sys.argv[1]
 
     try:
-
-        result = extract_deezer(
-            url
-        )
-
-    except DeezerExtractorError as exc:
+        data = extract_deezer(url)
 
         print(
             json.dumps(
                 {
-                    "ok": False,
-                    "error": str(exc),
+                    "ok": True,
+                    "data": data
                 },
                 ensure_ascii=False,
-                indent=2,
+                indent=2
             )
         )
 
-        sys.exit(1)
-
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "data": result,
-            },
-            ensure_ascii=False,
-            indent=2,
+    except Exception as e:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": str(e)
+                },
+                ensure_ascii=False,
+                indent=2
+            )
         )
-    )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
