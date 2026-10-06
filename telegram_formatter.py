@@ -1,197 +1,117 @@
-#!/usr/bin/env python3
-
 import json
 import sys
-from html import escape
+from pathlib import Path
 
 
 def cargar_json(ruta):
-    with open(ruta, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with open(ruta, "r", encoding="utf-8") as archivo:
+        return json.load(archivo)
 
 
-def construir_caption(data):
-    artistas = escape(
-        str(data.get("artistas", "")).strip()
-    )
+def construir_caption(datos):
+    artistas = datos.get("artistas", "")
+    titulo = datos.get("titulo_publicacion") or datos.get("titulo", "")
+    nombre_publicacion = datos.get("nombre_publicacion", "")
+    duracion = datos.get("duracion", "")
+    fecha = datos.get("fecha", "")
 
-    titulo = escape(
-        str(
-            data.get("titulo_publicacion")
-            or data.get("titulo")
-            or ""
-        ).strip()
-    )
-
-    nombre_publicacion = escape(
-        str(
-            data.get("nombre_publicacion", "")
-        ).strip()
-    )
-
-    duracion = escape(
-        str(
-            data.get("duracion", "")
-        ).strip()
-    )
-
-    fecha = escape(
-        str(
-            data.get("fecha", "")
-        ).strip()
-    )
+    # Convertir DD-MM-YYYY → DD/MM/YYYY
+    if fecha:
+        try:
+            partes = fecha.split("-")
+            if len(partes) == 3:
+                dia, mes, anio = partes
+                fecha = f"{dia}/{mes}/{anio}"
+        except Exception:
+            pass
 
     return (
-        f"🎤 <b>{artistas}</b>\n"
+        f"🎤 {artistas}\n"
         f"<blockquote>🎵 <b>{titulo}</b></blockquote>\n"
         f"📀 <i>{nombre_publicacion}</i>\n"
-        f"⏳️{duracion}\n"
-        f"🗓 {fecha}\n"
+        f"\n"
+        f"⏳️ {duracion}\n"
+        f"🗓 <b>{fecha}</b>\n"
         f"\n"
         f"<b>@Cubaton_Music</b>"
     )
 
 
-def construir_boton_escucha(data):
-    escuchar = data.get("escuchar") or {}
-
-    url = str(
-        escuchar.get("url", "")
-    ).strip()
-
-    fuente = str(
-        escuchar.get("fuente", "")
-    ).strip().casefold()
-
-    if not url:
-        return None
-
-    if fuente == "youtube music":
-        return {
-            "text": "▶️ Escuchar en YouTube Music",
-            "url": url
-        }
-
-    if fuente == "deezer":
-        return {
-            "text": "▶️ Escuchar en Deezer",
-            "url": url
-        }
-
-    return None
+def construir_mensaje_portada(datos):
+    return {
+        "tipo": "photo",
+        "photo": datos.get("portada", ""),
+        "caption": construir_caption(datos),
+        "parse_mode": "HTML"
+    }
 
 
-def construir_resultado(data):
+def construir_mensaje_preview(datos):
+    preview = datos.get("preview") or datos.get("preview_deezer", "")
 
-    portada = str(
-        data.get("portada", "")
-    ).strip()
-
-    if not portada:
-        raise ValueError(
-            "No existe portada para publicar."
-        )
-
-    preview = data.get("preview") or {}
-
-    preview_url = str(
-        preview.get("url", "")
-    ).strip()
-
-    preview_fuente = str(
-        preview.get("fuente", "")
-    ).strip().casefold()
-
-    if not preview_url:
-        raise ValueError(
-            "No existe preview para publicar."
-        )
-
-    if preview_fuente not in (
-        "apple music",
-        "deezer"
-    ):
-        raise ValueError(
-            f"Fuente de preview no válida: "
-            f"{preview_fuente}"
-        )
-
-    boton = construir_boton_escucha(data)
-
-    if not boton:
-        raise ValueError(
-            "No existe un botón de escucha válido."
-        )
-
-    titulo = (
-        data.get("titulo_publicacion")
-        or data.get("titulo")
-        or ""
+    boton_url = (
+        datos.get("youtube_music_url")
+        or datos.get("deezer_url", "")
     )
 
-    artistas = (
-        data.get("artistas")
-        or ""
-    )
-
-    duracion_segundos = (
-        data.get("duracion_segundos")
-        or 0
-    )
+    if datos.get("youtube_music_url"):
+        boton_texto = "▶️ Escuchar en YouTube Music"
+    else:
+        boton_texto = "▶️ Escuchar en Deezer"
 
     return {
-        "mensaje_1": {
-            "tipo": "photo",
-            "photo": portada,
-            "caption": construir_caption(data),
-            "parse_mode": "HTML"
-        },
-
-        "mensaje_2": {
-            "tipo": "audio",
-            "preview": preview_url,
-            "preview_fuente": preview_fuente,
-            "titulo": str(titulo).strip(),
-            "artistas": str(artistas).strip(),
-            "duracion_segundos": duracion_segundos,
-            "boton": boton
+        "tipo": "audio",
+        "audio": preview,
+        "title": datos.get("titulo_publicacion") or datos.get("titulo", ""),
+        "performer": datos.get("artistas", ""),
+        "duracion_segundos": datos.get("duracion_segundos"),
+        "reply_markup": {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": boton_texto,
+                        "url": boton_url
+                    }
+                ]
+            ]
         }
     }
 
 
-def main():
+def construir_resultado(datos):
+    mensaje_1 = construir_mensaje_portada(datos)
+    mensaje_2 = construir_mensaje_preview(datos)
 
-    if len(sys.argv) != 2:
-        print(
-            "Uso: python telegram_formatter.py "
-            "publication_result.json",
-            file=sys.stderr
-        )
+    return {
+        "ok": True,
+        "mensaje_1": mensaje_1,
+        "mensaje_2": mensaje_2
+    }
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Uso: python telegram_formatter.py <archivo.json>")
         sys.exit(1)
 
-    ruta = sys.argv[1]
+    ruta_entrada = Path(sys.argv[1])
+
+    if not ruta_entrada.exists():
+        print(f"ERROR: No existe el archivo: {ruta_entrada}")
+        sys.exit(1)
 
     try:
+        datos = cargar_json(ruta_entrada)
+        resultado = construir_resultado(datos)
 
-        data = cargar_json(ruta)
+        print(json.dumps(
+            resultado,
+            ensure_ascii=False,
+            indent=2
+        ))
 
-        resultado = construir_resultado(data)
-
-        print(
-            json.dumps(
-                resultado,
-                ensure_ascii=False,
-                indent=2
-            )
-        )
-
-    except Exception as exc:
-
-        print(
-            f"ERROR: {exc}",
-            file=sys.stderr
-        )
-
+    except Exception as e:
+        print(f"ERROR: {e}")
         sys.exit(1)
 
 
