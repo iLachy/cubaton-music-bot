@@ -8,14 +8,29 @@ on:
         required: true
         type: string
 
+      track_title:
+        description: "Título del track a probar (opcional; por ejemplo: FINA)"
+        required: false
+        default: ""
+        type: string
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
 
+      # ==================================================
+      # DESCARGAR REPOSITORIO
+      # ==================================================
+
       - name: Descargar repositorio
         uses: actions/checkout@v6
+
+
+      # ==================================================
+      # MOSTRAR ARCHIVOS
+      # ==================================================
 
       - name: Mostrar archivos
         run: |
@@ -35,11 +50,21 @@ jobs:
 
           sed -n '1,500p' youtube_music_search.py
 
+
+      # ==================================================
+      # INSTALAR DEPENDENCIAS
+      # ==================================================
+
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
 
           pip install requests ytmusicapi
+
+
+      # ==================================================
+      # EXTRAER DATOS DE DEEZER
+      # ==================================================
 
       - name: Extraer datos de Deezer
         id: deezer
@@ -54,67 +79,155 @@ jobs:
 
           echo ""
 
+          echo "TRACK SOLICITADO:"
+          echo "${{ inputs.track_title }}"
+
+          echo ""
+
           python deezer_extractor.py \
             "${{ inputs.deezer_url }}" \
             > deezer_result.json
 
           cat deezer_result.json
 
+
+      # ==================================================
+      # PREPARAR DATOS PARA YOUTUBE MUSIC
+      # ==================================================
+
       - name: Preparar datos para YouTube Music
         run: |
           python - <<'PY'
           import json
           import sys
+          import re
+          import unicodedata
+
+
+          # ==================================================
+          # FUNCIONES AUXILIARES
+          # ==================================================
+
+          def normalize_text(text):
+
+              if text is None:
+                  return ""
+
+              text = str(text).strip().lower()
+
+              text = unicodedata.normalize(
+                  "NFKD",
+                  text
+              )
+
+              text = "".join(
+                  char
+                  for char in text
+                  if not unicodedata.combining(char)
+              )
+
+              text = re.sub(
+                  r"\s+",
+                  " ",
+                  text
+              )
+
+              return text
+
+
+          def get_track_title(track):
+
+              return (
+                  track.get("titulo_publicacion")
+                  or track.get("titulo")
+                  or ""
+              )
+
+
+          # ==================================================
+          # LEER RESULTADO DE DEEZER
+          # ==================================================
 
           with open(
               "deezer_result.json",
               "r",
               encoding="utf-8"
           ) as f:
+
               result = json.load(f)
 
+
           if not result.get("ok"):
-              print("ERROR: El extractor de Deezer falló.")
-              print(result)
+
+              print(
+                  "ERROR: El extractor de Deezer falló."
+              )
+
+              print(
+                  json.dumps(
+                      result,
+                      ensure_ascii=False,
+                      indent=2
+                  )
+              )
+
               sys.exit(1)
+
 
           data = result.get("data") or {}
 
-          # --------------------------------------------------
+
+          # ==================================================
+          # TRACK SOLICITADO
+          # ==================================================
+
+          requested_track_title = (
+              "${{ inputs.track_title }}"
+              .strip()
+          )
+
+
+          # ==================================================
           # SINGLE
-          # --------------------------------------------------
+          # ==================================================
 
           if data.get("deezer_track_id"):
 
-              titulo_publicacion = data.get(
-                  "titulo_publicacion"
+              print(
+                  "========================================"
               )
 
-              artistas = data.get(
-                  "artistas"
+              print(
+                  "TIPO DE PUBLICACIÓN: SINGLE"
               )
 
-              isrc = data.get(
-                  "isrc"
+              print(
+                  "========================================"
               )
 
-              duracion = data.get(
-                  "duracion"
+              selected_track = data
+
+              print(
+                  "Track seleccionado:"
               )
 
-              deezer_track_id = data.get(
-                  "deezer_track_id"
+              print(
+                  get_track_title(
+                      selected_track
+                  )
               )
 
-          # --------------------------------------------------
+
+          # ==================================================
           # EP / ÁLBUM
-          # --------------------------------------------------
+          # ==================================================
 
           else:
 
-              tracks = data.get(
-                  "tracks"
-              ) or []
+              tracks = (
+                  data.get("tracks")
+                  or []
+              )
 
               if not tracks:
 
@@ -124,35 +237,194 @@ jobs:
 
                   sys.exit(1)
 
-              # Para esta primera prueba usamos el primer
-              # track del EP/álbum.
-              track = tracks[0]
 
-              titulo_publicacion = track.get(
+              print(
+                  "========================================"
+              )
+
+              print(
+                  "TIPO DE PUBLICACIÓN: EP / ÁLBUM"
+              )
+
+              print(
+                  "========================================"
+              )
+
+              print(
+                  f"Tracks encontrados: {len(tracks)}"
+              )
+
+              print("")
+
+
+              # ============================================
+              # SI SE ESPECIFICÓ UN TRACK
+              # ============================================
+
+              if requested_track_title:
+
+                  requested_normalized = (
+                      normalize_text(
+                          requested_track_title
+                      )
+                  )
+
+                  selected_track = None
+
+                  print(
+                      "Track solicitado:"
+                  )
+
+                  print(
+                      requested_track_title
+                  )
+
+                  print("")
+
+                  print(
+                      "Buscando coincidencia..."
+                  )
+
+                  print("")
+
+
+                  for index, track in enumerate(
+                      tracks,
+                      start=1
+                  ):
+
+                      track_title = (
+                          get_track_title(
+                              track
+                          )
+                      )
+
+                      track_title_normalized = (
+                          normalize_text(
+                              track_title
+                          )
+                      )
+
+                      print(
+                          f"{index:02d}. {track_title}"
+                      )
+
+                      # --------------------------------------
+                      # Coincidencia exacta
+                      # --------------------------------------
+
+                      if (
+                          track_title_normalized
+                          == requested_normalized
+                      ):
+
+                          selected_track = track
+
+                          print(
+                              "    -> COINCIDENCIA EXACTA"
+                          )
+
+                          break
+
+
+                  # =========================================
+                  # SI NO SE ENCONTRÓ
+                  # =========================================
+
+                  if selected_track is None:
+
+                      print("")
+
+                      print(
+                          "ERROR: No se encontró el track solicitado."
+                      )
+
+                      print(
+                          f"Track buscado: {requested_track_title}"
+                      )
+
+                      print("")
+
+                      print(
+                          "Tracks disponibles:"
+                      )
+
+                      for index, track in enumerate(
+                          tracks,
+                          start=1
+                      ):
+
+                          print(
+                              f"{index:02d}. "
+                              f"{get_track_title(track)}"
+                          )
+
+                      sys.exit(1)
+
+
+              # ============================================
+              # SI NO SE ESPECIFICÓ TRACK
+              # ============================================
+
+              else:
+
+                  selected_track = tracks[0]
+
+                  print(
+                      "No se especificó track."
+                  )
+
+                  print(
+                      "Se utilizará el primer track."
+                  )
+
+
+          # ==================================================
+          # EXTRAER DATOS DEL TRACK SELECCIONADO
+          # ==================================================
+
+          titulo_publicacion = (
+              selected_track.get(
                   "titulo_publicacion"
               )
+              or selected_track.get(
+                  "titulo"
+              )
+          )
 
-              artistas = track.get(
+          artistas = (
+              selected_track.get(
                   "artistas"
               )
+          )
 
-              isrc = track.get(
+          isrc = (
+              selected_track.get(
                   "isrc"
               )
+          )
 
-              duracion = track.get(
+          duracion = (
+              selected_track.get(
                   "duracion"
               )
+          )
 
-              deezer_track_id = track.get(
+          deezer_track_id = (
+              selected_track.get(
                   "deezer_track_id"
               )
+          )
 
-          # --------------------------------------------------
-          # Convertir artistas
-          # --------------------------------------------------
 
-          if isinstance(artistas, str):
+          # ==================================================
+          # CONVERTIR ARTISTAS
+          # ==================================================
+
+          if isinstance(
+              artistas,
+              str
+          ):
 
               artists_list = [
                   artist.strip()
@@ -160,7 +432,10 @@ jobs:
                   if artist.strip()
               ]
 
-          elif isinstance(artistas, list):
+          elif isinstance(
+              artistas,
+              list
+          ):
 
               artists_list = artistas
 
@@ -168,9 +443,10 @@ jobs:
 
               artists_list = []
 
-          # --------------------------------------------------
-          # Convertir duración MM:SS -> segundos
-          # --------------------------------------------------
+
+          # ==================================================
+          # CONVERTIR DURACIÓN MM:SS -> SEGUNDOS
+          # ==================================================
 
           duration_seconds = None
 
@@ -191,24 +467,32 @@ jobs:
 
                   duration_seconds = None
 
-          # --------------------------------------------------
-          # Crear archivo intermedio
-          # --------------------------------------------------
+
+          # ==================================================
+          # CREAR ARCHIVO INTERMEDIO
+          # ==================================================
 
           youtube_input = {
-              "titulo_publicacion": (
-                  titulo_publicacion
-              ),
-              "artistas": artists_list,
-              "isrc": isrc,
-              "duracion": duracion,
-              "duracion_segundos": (
-                  duration_seconds
-              ),
-              "deezer_track_id": (
+
+              "titulo_publicacion":
+                  titulo_publicacion,
+
+              "artistas":
+                  artists_list,
+
+              "isrc":
+                  isrc,
+
+              "duracion":
+                  duracion,
+
+              "duracion_segundos":
+                  duration_seconds,
+
+              "deezer_track_id":
                   deezer_track_id
-              )
           }
+
 
           with open(
               "youtube_input.json",
@@ -223,15 +507,50 @@ jobs:
                   indent=2
               )
 
+
+          # ==================================================
+          # MOSTRAR DATOS PREPARADOS
+          # ==================================================
+
+          print("")
+
           print(
               "========================================"
           )
+
+          print(
+              "TRACK SELECCIONADO"
+          )
+
+          print(
+              "========================================"
+          )
+
+          print("")
+
+          print(
+              json.dumps(
+                  selected_track,
+                  ensure_ascii=False,
+                  indent=2
+              )
+          )
+
+          print("")
+
+          print(
+              "========================================"
+          )
+
           print(
               "DATOS PREPARADOS PARA YOUTUBE MUSIC"
           )
+
           print(
               "========================================"
           )
+
+          print("")
 
           print(
               json.dumps(
@@ -240,7 +559,15 @@ jobs:
                   indent=2
               )
           )
+
+          print("")
+
           PY
+
+
+      # ==================================================
+      # BUSCAR EN YOUTUBE MUSIC
+      # ==================================================
 
       - name: Buscar en YouTube Music
         run: |
@@ -253,6 +580,11 @@ jobs:
           import subprocess
           import sys
 
+
+          # ==================================================
+          # LEER DATOS
+          # ==================================================
+
           with open(
               "youtube_input.json",
               "r",
@@ -261,42 +593,82 @@ jobs:
 
               data = json.load(f)
 
-          titulo_publicacion = data.get(
-              "titulo_publicacion"
+
+          titulo_publicacion = (
+              data.get(
+                  "titulo_publicacion"
+              )
           )
 
-          artistas = data.get(
-              "artistas"
-          ) or []
 
-          isrc = data.get(
-              "isrc"
+          artistas = (
+              data.get(
+                  "artistas"
+              )
+              or []
           )
 
-          duration_seconds = data.get(
-              "duracion_segundos"
+
+          isrc = (
+              data.get(
+                  "isrc"
+              )
           )
+
+
+          duration_seconds = (
+              data.get(
+                  "duracion_segundos"
+              )
+          )
+
 
           artists_string = ", ".join(
               artistas
           )
 
+
+          # ==================================================
+          # CREAR COMANDO
+          # ==================================================
+
           command = [
+
               sys.executable,
+
               "youtube_music_search.py",
+
               titulo_publicacion,
+
               artists_string,
           ]
 
+
           if isrc:
-              command.append(isrc)
+
+              command.append(
+                  isrc
+              )
+
           else:
-              command.append("")
+
+              command.append(
+                  ""
+              )
+
 
           if duration_seconds is not None:
+
               command.append(
-                  str(duration_seconds)
+                  str(
+                      duration_seconds
+                  )
               )
+
+
+          # ==================================================
+          # MOSTRAR COMANDO
+          # ==================================================
 
           print(
               "Comando:"
@@ -311,8 +683,14 @@ jobs:
 
           print("")
 
+
+          # ==================================================
+          # EJECUTAR
+          # ==================================================
+
           subprocess.run(
               command,
               check=True
           )
+
           PY
