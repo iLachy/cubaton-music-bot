@@ -2130,8 +2130,6 @@ def enviar_preview_audio(cancion, preview):
                     "chat_id": TELEGRAM_CHAT_ID,
                     "title": str(cancion.get("titulo") or ""),
                     "performer": str(cancion.get("artistas") or ""),
-                    "caption": "<b><i>Preview de 30 seg...</i></b>",
-                    "parse_mode": "HTML",
                     "duration": 30,
                     "reply_markup": teclado,
                 },
