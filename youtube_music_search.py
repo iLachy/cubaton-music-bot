@@ -8,15 +8,16 @@ from ytmusicapi import YTMusic
 
 SEARCH_LIMIT = 10
 
+# Umbral mínimo para considerar que encontramos una coincidencia.
+MATCH_THRESHOLD = 0.70
+
 
 def normalize_text(text):
     """
-    Normaliza texto para facilitar las comparaciones.
+    Normaliza texto para realizar comparaciones.
 
-    Ejemplo:
-        "Le Metí (Prod. by El Bandolero)"
-        ->
-        "le meti prod by el bandolero"
+    No modifica el título que finalmente utilizaremos.
+    Solamente crea una representación interna para el matching.
     """
 
     if not text:
@@ -24,7 +25,6 @@ def normalize_text(text):
 
     text = str(text).lower()
 
-    # Eliminar acentos.
     replacements = {
         "á": "a",
         "é": "e",
@@ -38,11 +38,8 @@ def normalize_text(text):
     for old, new in replacements.items():
         text = text.replace(old, new)
 
-    # Sustituir cualquier cosa que no sea letra/número
-    # por espacios.
     text = re.sub(r"[^a-z0-9]+", " ", text)
 
-    # Eliminar espacios repetidos.
     text = re.sub(r"\s+", " ", text).strip()
 
     return text
@@ -50,7 +47,18 @@ def normalize_text(text):
 
 def title_similarity(source_title, result_title):
     """
-    Calcula similitud entre dos títulos.
+    Calcula la similitud entre el título oficial de nuestro
+    sistema y el título devuelto por YouTube Music.
+
+    Consideramos especialmente importante el caso en que
+    YouTube Music añada información al final del título.
+
+    Ejemplo:
+
+        Le Metí
+        Le Metí (Prod. by El Bandolero)
+
+    Esto debe considerarse una coincidencia fuerte.
     """
 
     source = normalize_text(source_title)
@@ -59,6 +67,21 @@ def title_similarity(source_title, result_title):
     if not source or not result:
         return 0.0
 
+    # Coincidencia exacta.
+    if source == result:
+        return 1.0
+
+    # Si el resultado de YTM comienza exactamente con nuestro
+    # título, consideramos que probablemente se trata de una
+    # versión enriquecida del mismo título.
+    if result.startswith(source + " "):
+        return 0.95
+
+    # También contemplamos directamente el caso de paréntesis.
+    if result.startswith(source + "("):
+        return 0.95
+
+    # Comparación general como fallback.
     return SequenceMatcher(
         None,
         source,
@@ -68,8 +91,7 @@ def title_similarity(source_title, result_title):
 
 def get_result_artists(result):
     """
-    Obtiene los nombres de los artistas de un resultado
-    de YouTube Music.
+    Obtiene los nombres de los artistas de un resultado de YTM.
     """
 
     artists = result.get("artists") or []
@@ -77,9 +99,10 @@ def get_result_artists(result):
     names = []
 
     for artist in artists:
+
         name = artist.get("name")
 
-        if name:
+        if name and name not in names:
             names.append(name)
 
     return names
@@ -87,27 +110,25 @@ def get_result_artists(result):
 
 def artists_similarity(source_artists, result_artists):
     """
-    Compara los artistas de Deezer con los artistas del
-    resultado de YouTube Music.
+    Compara los artistas de Deezer con los artistas de YTM.
 
-    No exigimos que sean exactamente iguales porque
-    YouTube Music puede mostrar solo parte de los
-    colaboradores.
+    No exigimos coincidencia exacta de cantidad porque una
+    plataforma puede mostrar colaboradores de forma diferente.
     """
 
     if not source_artists or not result_artists:
         return 0.0
 
     normalized_source = [
-        normalize_text(x)
-        for x in source_artists
-        if x
+        normalize_text(artist)
+        for artist in source_artists
+        if artist
     ]
 
     normalized_result = [
-        normalize_text(x)
-        for x in result_artists
-        if x
+        normalize_text(artist)
+        for artist in result_artists
+        if artist
     ]
 
     if not normalized_source or not normalized_result:
@@ -136,18 +157,72 @@ def artists_similarity(source_artists, result_artists):
     return matches / len(normalized_source)
 
 
+def duration_similarity(
+    source_duration_seconds,
+    result_duration_seconds
+):
+    """
+    Compara las duraciones.
+
+    Una diferencia de pocos segundos es normal entre plataformas,
+    por lo que no exigimos igualdad exacta.
+    """
+
+    if (
+        source_duration_seconds is None
+        or result_duration_seconds is None
+    ):
+        return 0.0
+
+    try:
+        source = int(source_duration_seconds)
+        result = int(result_duration_seconds)
+    except (TypeError, ValueError):
+        return 0.0
+
+    difference = abs(source - result)
+
+    if difference == 0:
+        return 1.0
+
+    if difference <= 2:
+        return 0.95
+
+    if difference <= 5:
+        return 0.85
+
+    if difference <= 10:
+        return 0.65
+
+    if difference <= 20:
+        return 0.35
+
+    return 0.0
+
+
 def calculate_score(
     source_title,
     source_artists,
+    source_duration_seconds,
     result
 ):
     """
-    Calcula una puntuación global para un resultado.
+    Calcula la puntuación global de una coincidencia.
+
+    Pesos:
+
+        Título     50 %
+        Artistas   35 %
+        Duración   15 %
     """
 
     result_title = result.get("title") or ""
 
     result_artists = get_result_artists(result)
+
+    result_duration = result.get(
+        "duration_seconds"
+    )
 
     title_score = title_similarity(
         source_title,
@@ -159,37 +234,49 @@ def calculate_score(
         result_artists
     )
 
-    # El título tiene mayor peso.
+    duration_score = duration_similarity(
+        source_duration_seconds,
+        result_duration
+    )
+
     score = (
-        title_score * 0.65
+        title_score * 0.50
         +
         artist_score * 0.35
+        +
+        duration_score * 0.15
     )
 
     return {
         "score": round(score, 4),
         "title_score": round(title_score, 4),
         "artist_score": round(artist_score, 4),
+        "duration_score": round(duration_score, 4),
     }
 
 
 def search_youtube_music(
-    title,
+    titulo_publicacion,
     artists,
-    isrc=None
+    isrc=None,
+    duration_seconds=None
 ):
     """
-    Busca una canción en YouTube Music.
+    Busca una canción en YouTube Music utilizando como fuente
+    maestra los datos proporcionados por Deezer.
 
-    Se realizan varias búsquedas:
+    IMPORTANTE:
 
-    1. Título + artistas
-    2. Título + artista principal
-    3. Título
+    titulo_publicacion NO será reemplazado por el título que
+    devuelva YTM.
 
-    El ISRC se conserva como dato de referencia, pero
-    no se asume que YouTube Music lo permita buscar
-    directamente.
+    YTM solamente nos proporciona:
+
+        - coincidencia
+        - video_id
+        - URL
+        - disponibilidad
+        - datos auxiliares
     """
 
     ytmusic = YTMusic()
@@ -200,11 +287,13 @@ def search_youtube_music(
         if artist and artist.strip()
     ]
 
-    title = (title or "").strip()
+    titulo_publicacion = (
+        titulo_publicacion or ""
+    ).strip()
 
-    if not title:
+    if not titulo_publicacion:
         raise ValueError(
-            "El título de la canción es obligatorio."
+            "titulo_publicacion es obligatorio."
         )
 
     if not artists:
@@ -212,29 +301,45 @@ def search_youtube_music(
             "Debe existir al menos un artista."
         )
 
+    # ---------------------------------------------------------
+    # CONSULTAS
+    # ---------------------------------------------------------
+
     queries = []
 
-    # Búsqueda principal.
-    query_full = f"{title} {' '.join(artists)}"
+    # Consulta principal:
+    # título editorial completo + todos los artistas.
+    query_full = (
+        f"{titulo_publicacion} "
+        f"{' '.join(artists)}"
+    )
 
     queries.append(query_full)
 
-    # Búsqueda con el artista principal.
-    if len(artists) > 0:
-        query_main = f"{title} {artists[0]}"
+    # Consulta con título + artista principal.
+    query_main_artist = (
+        f"{titulo_publicacion} {artists[0]}"
+    )
 
-        if query_main not in queries:
-            queries.append(query_main)
+    if query_main_artist not in queries:
+        queries.append(query_main_artist)
 
-    # Búsqueda solamente por título.
-    if title not in queries:
-        queries.append(title)
+    # Como último recurso, solamente título.
+    if titulo_publicacion not in queries:
+        queries.append(titulo_publicacion)
+
+    # ---------------------------------------------------------
+    # BUSCAR
+    # ---------------------------------------------------------
 
     candidates = {}
+
+    search_errors = []
 
     for query in queries:
 
         try:
+
             results = ytmusic.search(
                 query,
                 filter="songs",
@@ -243,6 +348,12 @@ def search_youtube_music(
             )
 
         except Exception as e:
+
+            search_errors.append({
+                "query": query,
+                "error": str(e)
+            })
+
             continue
 
         for result in results:
@@ -255,14 +366,19 @@ def search_youtube_music(
             if video_id not in candidates:
                 candidates[video_id] = result
 
+    # ---------------------------------------------------------
+    # RANKING
+    # ---------------------------------------------------------
+
     ranked = []
 
     for result in candidates.values():
 
         scores = calculate_score(
-            title,
-            artists,
-            result
+            source_title=titulo_publicacion,
+            source_artists=artists,
+            source_duration_seconds=duration_seconds,
+            result=result
         )
 
         ranked.append({
@@ -283,13 +399,34 @@ def search_youtube_music(
 
         return {
             "encontrado": False,
-            "titulo_buscado": title,
+
+            "titulo_publicacion": titulo_publicacion,
+
             "artistas_buscados": artists,
+
             "isrc": isrc,
+
             "youtube_music_url": None,
+
             "video_id": None,
+
+            "titulo_ytmusic": None,
+
+            "artistas_ytmusic": [],
+
+            "disponible": False,
+
             "mejor_puntuacion": 0,
-            "resultados": []
+
+            "title_score": 0,
+
+            "artist_score": 0,
+
+            "duration_score": 0,
+
+            "resultados": [],
+
+            "errores_busqueda": search_errors
         }
 
     # ---------------------------------------------------------
@@ -302,22 +439,27 @@ def search_youtube_music(
 
     score = best["score"]
 
-    # Umbral conservador.
-    #
-    # No queremos publicar automáticamente una canción
-    # que tenga una coincidencia dudosa.
-    encontrado = score >= 0.70
-
     video_id = result.get("videoId")
 
     youtube_music_url = None
 
     if video_id:
+
         youtube_music_url = (
-            f"https://music.youtube.com/watch?v={video_id}"
+            "https://music.youtube.com/watch?v="
+            + video_id
         )
 
-    artists_result = get_result_artists(result)
+    result_artists = get_result_artists(result)
+
+    # Un resultado solamente se considera encontrado si
+    # supera nuestro umbral y está disponible.
+    disponible = result.get("isAvailable")
+
+    encontrado = (
+        score >= MATCH_THRESHOLD
+        and disponible is not False
+    )
 
     # ---------------------------------------------------------
     # TOP RESULTADOS
@@ -329,11 +471,14 @@ def search_youtube_music(
 
         candidate = item["result"]
 
-        candidate_video_id = candidate.get("videoId")
+        candidate_video_id = candidate.get(
+            "videoId"
+        )
 
         candidate_url = None
 
         if candidate_video_id:
+
             candidate_url = (
                 "https://music.youtube.com/watch?v="
                 + candidate_video_id
@@ -341,54 +486,103 @@ def search_youtube_music(
 
         top_results.append({
             "titulo": candidate.get("title"),
-            "artistas": get_result_artists(candidate),
-            "duracion": candidate.get("duration"),
+
+            "artistas": get_result_artists(
+                candidate
+            ),
+
+            "duracion": candidate.get(
+                "duration"
+            ),
+
             "duracion_segundos": candidate.get(
                 "duration_seconds"
             ),
+
             "video_id": candidate_video_id,
+
             "youtube_music_url": candidate_url,
+
             "disponible": candidate.get(
                 "isAvailable"
             ),
+
             "explicito": candidate.get(
                 "isExplicit"
             ),
+
             "score": item["score"],
-            "title_score": item["title_score"],
-            "artist_score": item["artist_score"],
+
+            "title_score": item[
+                "title_score"
+            ],
+
+            "artist_score": item[
+                "artist_score"
+            ],
+
+            "duration_score": item[
+                "duration_score"
+            ]
         })
+
+    # ---------------------------------------------------------
+    # RESULTADO FINAL
+    # ---------------------------------------------------------
 
     return {
         "encontrado": encontrado,
-        "titulo_buscado": title,
+
+        # ESTE ES EL TÍTULO OFICIAL DE NUESTRO SISTEMA.
+        "titulo_publicacion": titulo_publicacion,
+
         "artistas_buscados": artists,
+
         "isrc": isrc,
 
-        "titulo": result.get("title"),
-        "artistas": artists_result,
+        # Información encontrada en YTM.
+        # No sustituye nuestro titulo_publicacion.
+        "titulo_ytmusic": result.get(
+            "title"
+        ),
+
+        "artistas_ytmusic": result_artists,
 
         "youtube_music_url": youtube_music_url,
+
         "video_id": video_id,
 
-        "duracion": result.get("duration"),
-        "duracion_segundos": result.get(
+        "duracion_ytmusic": result.get(
+            "duration"
+        ),
+
+        "duracion_ytmusic_segundos": result.get(
             "duration_seconds"
         ),
 
-        "disponible": result.get(
-            "isAvailable"
-        ),
+        "disponible": disponible,
 
         "explicito": result.get(
             "isExplicit"
         ),
 
         "mejor_puntuacion": score,
-        "title_score": best["title_score"],
-        "artist_score": best["artist_score"],
 
-        "resultados": top_results
+        "title_score": best[
+            "title_score"
+        ],
+
+        "artist_score": best[
+            "artist_score"
+        ],
+
+        "duration_score": best[
+            "duration_score"
+        ],
+
+        "resultados": top_results,
+
+        "errores_busqueda": search_errors
     }
 
 
@@ -403,9 +597,10 @@ def main():
                     "error": (
                         "Uso: "
                         "python youtube_music_search.py "
-                        "\"TITULO\" "
+                        "\"TITULO_PUBLICACION\" "
                         "\"ARTISTA1, ARTISTA2\" "
-                        "[ISRC]"
+                        "[ISRC] "
+                        "[DURACION_SEGUNDOS]"
                     )
                 },
                 ensure_ascii=False,
@@ -415,7 +610,7 @@ def main():
 
         sys.exit(1)
 
-    title = sys.argv[1]
+    titulo_publicacion = sys.argv[1]
 
     artists = [
         artist.strip()
@@ -426,14 +621,33 @@ def main():
     isrc = None
 
     if len(sys.argv) >= 4:
-        isrc = sys.argv[3].strip() or None
+
+        isrc = (
+            sys.argv[3].strip()
+            or None
+        )
+
+    duration_seconds = None
+
+    if len(sys.argv) >= 5:
+
+        try:
+
+            duration_seconds = int(
+                sys.argv[4]
+            )
+
+        except (TypeError, ValueError):
+
+            duration_seconds = None
 
     try:
 
         result = search_youtube_music(
-            title=title,
+            titulo_publicacion=titulo_publicacion,
             artists=artists,
-            isrc=isrc
+            isrc=isrc,
+            duration_seconds=duration_seconds
         )
 
         print(
