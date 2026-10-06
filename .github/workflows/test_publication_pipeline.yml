@@ -15,38 +15,25 @@ on:
         type: string
 
 jobs:
+
   test-publication-pipeline:
 
     runs-on: ubuntu-latest
 
     steps:
 
-      # ==================================================
-      # CHECKOUT
-      # ==================================================
-
       - name: Descargar repositorio
         uses: actions/checkout@v4
-
-
-      # ==================================================
-      # INSTALAR DEPENDENCIAS
-      # ==================================================
 
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install requests ytmusicapi
 
-
-      # ==================================================
-      # MOSTRAR PARÁMETROS
-      # ==================================================
-
       - name: Mostrar parámetros de prueba
         run: |
           echo "========================================"
-          echo "PRUEBA DEL PIPELINE"
+          echo "PRUEBA DEL PIPELINE COMPLETO"
           echo "========================================"
 
           echo ""
@@ -59,13 +46,13 @@ jobs:
 
           echo ""
 
-
-      # ==================================================
+      # ======================================================
       # DEEZER
-      # ==================================================
+      # ======================================================
 
       - name: Extraer información de Deezer
         run: |
+
           echo "========================================"
           echo "EXTRAYENDO DATOS DE DEEZER"
           echo "========================================"
@@ -79,14 +66,14 @@ jobs:
           cat deezer_result.json
           echo ""
 
+      # ======================================================
+      # PREPARAR PISTA
+      # ======================================================
 
-      # ==================================================
-      # PREPARAR ENTRADA PARA YOUTUBE MUSIC
-      # ==================================================
-
-      - name: Preparar búsqueda de YouTube Music
+      - name: Preparar datos de la pista
         env:
           TRACK_TITLE: ${{ inputs.track_title }}
+
         run: |
 
           python - <<'PY'
@@ -95,11 +82,6 @@ jobs:
           import os
           import sys
 
-
-          # ==================================================
-          # LEER RESULTADO DEEZER
-          # ==================================================
-
           with open(
               "deezer_result.json",
               "r",
@@ -107,22 +89,16 @@ jobs:
           ) as f:
               result = json.load(f)
 
-
           if not result.get("ok"):
-
               print(
                   "ERROR: El extractor de Deezer no devolvió ok=true."
               )
-
               sys.exit(1)
 
-
-          data = result.get("data") or {}
-
-
-          # ==================================================
-          # PISTA SOLICITADA
-          # ==================================================
+          data = (
+              result.get("data")
+              or {}
+          )
 
           track_title_requested = (
               os.environ.get(
@@ -132,42 +108,26 @@ jobs:
               .strip()
           )
 
-
-          # ==================================================
-          # DETERMINAR PISTA
-          # ==================================================
-
-          tracks = data.get("tracks") or []
-
-
-          # --------------------------------------------------
-          # SINGLE
-          # --------------------------------------------------
+          tracks = (
+              data.get("tracks")
+              or []
+          )
 
           if not tracks:
 
               track = data
 
-
-          # --------------------------------------------------
-          # EP / ÁLBUM
-          # --------------------------------------------------
-
           else:
 
               track = None
 
-
-              # ----------------------------------------------
-              # BUSCAR PISTA SOLICITADA
-              # ----------------------------------------------
-
               if track_title_requested:
 
                   requested_normalized = (
-                      track_title_requested.casefold().strip()
+                      track_title_requested
+                      .casefold()
+                      .strip()
                   )
-
 
                   for candidate in tracks:
 
@@ -181,7 +141,6 @@ jobs:
                           or ""
                       )
 
-
                       candidate_normalized = (
                           str(
                               candidate_title
@@ -190,20 +149,12 @@ jobs:
                           .strip()
                       )
 
-
                       if (
                           candidate_normalized
                           == requested_normalized
                       ):
-
                           track = candidate
-
                           break
-
-
-                  # ------------------------------------------
-                  # SEGUNDO INTENTO: TÍTULO LIMPIO
-                  # ------------------------------------------
 
                   if track is None:
 
@@ -216,7 +167,6 @@ jobs:
                               or ""
                           )
 
-
                           candidate_normalized = (
                               str(
                                   candidate_title
@@ -225,20 +175,12 @@ jobs:
                               .strip()
                           )
 
-
                           if (
                               candidate_normalized
                               == requested_normalized
                           ):
-
                               track = candidate
-
                               break
-
-
-              # ----------------------------------------------
-              # SIN PISTA ESPECIFICADA
-              # ----------------------------------------------
 
               if (
                   track is None
@@ -247,11 +189,6 @@ jobs:
 
                   track = tracks[0]
 
-
-              # ----------------------------------------------
-              # NO ENCONTRADA
-              # ----------------------------------------------
-
               if track is None:
 
                   print("")
@@ -259,7 +196,7 @@ jobs:
                       "ERROR: No se encontró la pista solicitada:"
                   )
                   print(
-                      f"  {track_title_requested}"
+                      track_title_requested
                   )
                   print("")
 
@@ -287,10 +224,9 @@ jobs:
 
                   sys.exit(1)
 
-
-          # ==================================================
+          # --------------------------------------------------
           # NORMALIZAR ARTISTAS
-          # ==================================================
+          # --------------------------------------------------
 
           artistas_raw = (
               track.get(
@@ -299,7 +235,6 @@ jobs:
               or []
           )
 
-
           if isinstance(
               artistas_raw,
               str
@@ -307,7 +242,8 @@ jobs:
 
               artistas = [
                   artista.strip()
-                  for artista in artistas_raw.split(",")
+                  for artista in
+                  artistas_raw.split(",")
                   if artista.strip()
               ]
 
@@ -317,55 +253,58 @@ jobs:
           ):
 
               artistas = [
-                  str(artista).strip()
+                  str(
+                      artista
+                  ).strip()
                   for artista in artistas_raw
-                  if str(artista).strip()
+                  if str(
+                      artista
+                  ).strip()
               ]
 
           else:
 
               artistas = []
 
+          # --------------------------------------------------
+          # DATOS MAESTROS
+          # --------------------------------------------------
 
-          # ==================================================
-          # CONSTRUIR ENTRADA YOUTUBE MUSIC
-          # ==================================================
-
-          youtube_input = {
-
-              "titulo_publicacion": (
-                  track.get(
-                      "titulo_publicacion"
-                  )
-                  or track.get(
-                      "titulo"
-                  )
-                  or ""
-              ),
-
-              "artistas": artistas,
-
-              "isrc": (
-                  track.get(
-                      "isrc"
-                  )
-                  or ""
-              ),
-
-              "duracion_segundos": (
-                  track.get(
-                      "duracion_segundos"
-                  )
+          titulo_publicacion = (
+              track.get(
+                  "titulo_publicacion"
               )
+              or track.get(
+                  "titulo"
+              )
+              or ""
+          )
 
-          }
+          titulo = (
+              track.get(
+                  "titulo"
+              )
+              or ""
+          )
 
+          isrc = (
+              track.get(
+                  "isrc"
+              )
+              or ""
+          )
 
-          # ==================================================
-          # VALIDACIONES
-          # ==================================================
+          duracion_segundos = (
+              track.get(
+                  "duracion_segundos"
+              )
+          )
 
-          if not youtube_input["titulo_publicacion"]:
+          # --------------------------------------------------
+          # VALIDACIÓN
+          # --------------------------------------------------
+
+          if not titulo_publicacion:
 
               print(
                   "ERROR: Falta titulo_publicacion."
@@ -373,8 +312,7 @@ jobs:
 
               sys.exit(1)
 
-
-          if not youtube_input["artistas"]:
+          if not artistas:
 
               print(
                   "ERROR: No se pudieron determinar los artistas."
@@ -382,38 +320,55 @@ jobs:
 
               sys.exit(1)
 
+          # --------------------------------------------------
+          # ENTRADA COMÚN
+          # --------------------------------------------------
 
-          # ==================================================
-          # GUARDAR
-          # ==================================================
+          music_input = {
+
+              "titulo": titulo,
+
+              "titulo_publicacion":
+                  titulo_publicacion,
+
+              "artistas":
+                  artistas,
+
+              "isrc":
+                  isrc,
+
+              "duracion_segundos":
+                  duracion_segundos
+          }
 
           with open(
-              "youtube_input.json",
+              "music_input.json",
               "w",
               encoding="utf-8"
           ) as f:
 
               json.dump(
-                  youtube_input,
+                  music_input,
                   f,
                   ensure_ascii=False,
                   indent=2
               )
 
-
-          # ==================================================
-          # MOSTRAR
-          # ==================================================
-
           print("")
-          print("========================================")
-          print("ENTRADA PARA YOUTUBE MUSIC")
-          print("========================================")
+          print(
+              "========================================"
+          )
+          print(
+              "ENTRADA COMÚN PARA YOUTUBE MUSIC Y APPLE MUSIC"
+          )
+          print(
+              "========================================"
+          )
           print("")
 
           print(
               json.dumps(
-                  youtube_input,
+                  music_input,
                   ensure_ascii=False,
                   indent=2
               )
@@ -423,10 +378,9 @@ jobs:
 
           PY
 
-
-      # ==================================================
+      # ======================================================
       # YOUTUBE MUSIC
-      # ==================================================
+      # ======================================================
 
       - name: Buscar en YouTube Music
         run: |
@@ -441,19 +395,13 @@ jobs:
           import subprocess
           import sys
 
-
-          # ==================================================
-          # LEER ENTRADA
-          # ==================================================
-
           with open(
-              "youtube_input.json",
+              "music_input.json",
               "r",
               encoding="utf-8"
           ) as f:
 
               data = json.load(f)
-
 
           titulo_publicacion = (
               data.get(
@@ -462,14 +410,12 @@ jobs:
               or ""
           )
 
-
           artistas = (
               data.get(
                   "artistas"
               )
               or []
           )
-
 
           isrc = (
               data.get(
@@ -478,38 +424,15 @@ jobs:
               or ""
           )
 
-
           duration_seconds = (
               data.get(
                   "duracion_segundos"
               )
           )
 
-
-          # ==================================================
-          # NORMALIZAR ARTISTAS
-          # ==================================================
-
-          if isinstance(
-              artistas,
-              str
-          ):
-
-              artistas = [
-                  artista.strip()
-                  for artista in artistas.split(",")
-                  if artista.strip()
-              ]
-
-
           artists_string = ", ".join(
               artistas
           )
-
-
-          # ==================================================
-          # CREAR COMANDO
-          # ==================================================
 
           command = [
 
@@ -521,10 +444,8 @@ jobs:
 
               artists_string,
 
-              isrc,
-
+              isrc
           ]
-
 
           if duration_seconds is not None:
 
@@ -534,13 +455,10 @@ jobs:
                   )
               )
 
-
-          # ==================================================
-          # MOSTRAR COMANDO
-          # ==================================================
-
           print("")
-          print("Comando:")
+          print(
+              "Comando:"
+          )
 
           print(
               " ".join(
@@ -551,22 +469,16 @@ jobs:
 
           print("")
 
-
-          # ==================================================
-          # EJECUTAR
-          # ==================================================
-
           process = subprocess.run(
+
               command,
+
               capture_output=True,
+
               text=True,
+
               check=True
           )
-
-
-          # ==================================================
-          # GUARDAR RESULTADO
-          # ==================================================
 
           with open(
               "youtube_result.json",
@@ -578,14 +490,18 @@ jobs:
                   process.stdout
               )
 
+          print(
+              "========================================"
+          )
 
-          # ==================================================
-          # MOSTRAR RESULTADO
-          # ==================================================
+          print(
+              "RESULTADO YOUTUBE MUSIC"
+          )
 
-          print("========================================")
-          print("RESULTADO YOUTUBE MUSIC")
-          print("========================================")
+          print(
+              "========================================"
+          )
+
           print("")
 
           print(
@@ -596,10 +512,151 @@ jobs:
 
           PY
 
+      # ======================================================
+      # APPLE MUSIC
+      # ======================================================
 
-      # ==================================================
+      - name: Buscar en Apple Music
+        run: |
+
+          echo "========================================"
+          echo "BUSCANDO EN APPLE MUSIC"
+          echo "========================================"
+
+          python - <<'PY'
+
+          import json
+          import subprocess
+          import sys
+
+          with open(
+              "music_input.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+
+              data = json.load(f)
+
+          titulo_publicacion = (
+              data.get(
+                  "titulo_publicacion"
+              )
+              or ""
+          )
+
+          artistas = (
+              data.get(
+                  "artistas"
+              )
+              or []
+          )
+
+          isrc = (
+              data.get(
+                  "isrc"
+              )
+              or ""
+          )
+
+          duration_seconds = (
+              data.get(
+                  "duracion_segundos"
+              )
+          )
+
+          artists_string = ", ".join(
+              artistas
+          )
+
+          command = [
+
+              sys.executable,
+
+              "apple_music_search.py",
+
+              titulo_publicacion,
+
+              artists_string,
+
+              isrc
+          ]
+
+          if duration_seconds is not None:
+
+              command.append(
+                  str(
+                      duration_seconds
+                  )
+              )
+
+          # --------------------------------------------------
+          # STOREFRONT
+          # --------------------------------------------------
+
+          command.append(
+              "us"
+          )
+
+          print("")
+          print(
+              "Comando:"
+          )
+
+          print(
+              " ".join(
+                  f'"{x}"'
+                  for x in command
+              )
+          )
+
+          print("")
+
+          process = subprocess.run(
+
+              command,
+
+              capture_output=True,
+
+              text=True,
+
+              check=True
+          )
+
+          with open(
+              "apple_result.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              f.write(
+                  process.stdout
+              )
+
+          print(
+              "========================================"
+          )
+
+          print(
+              "RESULTADO APPLE MUSIC"
+          )
+
+          print(
+              "========================================"
+          )
+
+          print("")
+
+          print(
+              process.stdout
+          )
+
+          print("")
+
+          PY
+
+      # ======================================================
       # CONSTRUIR RESULTADO FINAL
-      # ==================================================
+      # ======================================================
 
       - name: Construir resultado final
         run: |
@@ -609,10 +666,9 @@ jobs:
           import json
           import sys
 
-
-          # ==================================================
-          # LEER DEEZER
-          # ==================================================
+          # --------------------------------------------------
+          # DEEZER
+          # --------------------------------------------------
 
           with open(
               "deezer_result.json",
@@ -622,7 +678,6 @@ jobs:
 
               deezer_result = json.load(f)
 
-
           if not deezer_result.get("ok"):
 
               print(
@@ -631,16 +686,16 @@ jobs:
 
               sys.exit(1)
 
-
           deezer = (
-              deezer_result.get("data")
+              deezer_result.get(
+                  "data"
+              )
               or {}
           )
 
-
-          # ==================================================
-          # LEER YOUTUBE MUSIC
-          # ==================================================
+          # --------------------------------------------------
+          # YOUTUBE MUSIC
+          # --------------------------------------------------
 
           with open(
               "youtube_result.json",
@@ -650,134 +705,338 @@ jobs:
 
               youtube_result = json.load(f)
 
-
           youtube = (
-              youtube_result.get("data")
+              youtube_result.get(
+                  "data"
+              )
               or {}
           )
 
+          # --------------------------------------------------
+          # APPLE MUSIC
+          # --------------------------------------------------
 
-          # ==================================================
-          # CONSTRUIR RESULTADO FINAL
-          # ==================================================
+          with open(
+              "apple_result.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+
+              apple_result = json.load(f)
+
+          apple = (
+              apple_result.get(
+                  "data"
+              )
+              or {}
+          )
+
+          # --------------------------------------------------
+          # ESTADO ISRC APPLE
+          # --------------------------------------------------
+
+          apple_isrc = (
+              apple.get(
+                  "isrc_apple"
+              )
+              or ""
+          )
+
+          deezer_isrc = (
+              deezer.get(
+                  "isrc"
+              )
+              or ""
+          )
+
+          if apple_isrc:
+
+              if (
+                  deezer_isrc
+                  and
+                  apple_isrc.upper()
+                  == deezer_isrc.upper()
+              ):
+
+                  apple_isrc_status = (
+                      "coincide"
+                  )
+
+              else:
+
+                  apple_isrc_status = (
+                      "no_coincide"
+                  )
+
+          else:
+
+              apple_isrc_status = (
+                  "no_disponible"
+              )
+
+          # --------------------------------------------------
+          # PREVIEW
+          # --------------------------------------------------
+
+          apple_preview = (
+              apple.get(
+                  "preview_apple"
+              )
+              or ""
+          )
+
+          deezer_preview = (
+              deezer.get(
+                  "preview_deezer"
+              )
+              or ""
+          )
+
+          if apple_preview:
+
+              preview_url = (
+                  apple_preview
+              )
+
+              preview_source = (
+                  "Apple Music"
+              )
+
+          elif deezer_preview:
+
+              preview_url = (
+                  deezer_preview
+              )
+
+              preview_source = (
+                  "Deezer"
+              )
+
+          else:
+
+              preview_url = ""
+
+              preview_source = ""
+
+          # --------------------------------------------------
+          # ESCUCHAR
+          # --------------------------------------------------
+
+          youtube_url = (
+              youtube.get(
+                  "youtube_music_url"
+              )
+              or ""
+          )
+
+          deezer_url = (
+              deezer.get(
+                  "deezer_url"
+              )
+              or ""
+          )
+
+          if youtube_url:
+
+              escuchar_url = (
+                  youtube_url
+              )
+
+              escuchar_fuente = (
+                  "YouTube Music"
+              )
+
+          else:
+
+              escuchar_url = (
+                  deezer_url
+              )
+
+              escuchar_fuente = (
+                  "Deezer"
+              )
+
+          # --------------------------------------------------
+          # RESULTADO FINAL
+          # --------------------------------------------------
 
           final = {
 
-              "artistas": (
+              "artistas":
                   deezer.get(
                       "artistas"
                   )
-                  or ""
-              ),
+                  or "",
 
-              "titulo": (
+              "titulo":
                   deezer.get(
                       "titulo"
                   )
-                  or ""
-              ),
+                  or "",
 
-              "titulo_publicacion": (
+              "titulo_publicacion":
                   deezer.get(
                       "titulo_publicacion"
                   )
-                  or ""
-              ),
+                  or "",
 
-              "nombre_publicacion": (
+              "nombre_publicacion":
                   deezer.get(
                       "nombre_publicacion"
                   )
-                  or ""
-              ),
+                  or "",
 
-              "duracion": (
+              "duracion":
                   deezer.get(
                       "duracion"
                   )
-                  or ""
-              ),
+                  or "",
 
-              "fecha": (
+              "fecha":
                   deezer.get(
                       "fecha"
                   )
-                  or ""
-              ),
+                  or "",
 
-              "deezer_url": (
-                  deezer.get(
-                      "deezer_url"
-                  )
-                  or ""
-              ),
+              "deezer_url":
+                  deezer_url,
 
-              "isrc": (
-                  deezer.get(
-                      "isrc"
-                  )
-                  or ""
-              ),
+              "isrc":
+                  deezer_isrc,
 
-              "youtube_music": {
+              "preview":
+                  {
 
-                  "encontrado": (
-                      youtube.get(
-                          "encontrado"
-                      )
-                      is True
-                  ),
+                      "url":
+                          preview_url,
 
-                  "titulo": (
-                      youtube.get(
-                          "titulo_ytmusic"
-                      )
-                      or ""
-                  ),
+                      "fuente":
+                          preview_source
+                  },
 
-                  "artistas": (
-                      youtube.get(
-                          "artistas_ytmusic"
-                      )
-                      or []
-                  ),
+              "escuchar":
+                  {
 
-                  "url": (
-                      youtube.get(
-                          "youtube_music_url"
-                      )
-                      or ""
-                  ),
+                      "url":
+                          escuchar_url,
 
-                  "video_id": (
-                      youtube.get(
-                          "video_id"
-                      )
-                      or ""
-                  ),
+                      "fuente":
+                          escuchar_fuente
+                  },
 
-                  "puntuacion": (
-                      youtube.get(
-                          "mejor_puntuacion"
-                      )
-                      or 0.0
-                  ),
+              "youtube_music":
+                  {
 
-                  "version_compatible": (
-                      youtube.get(
-                          "version_compatible"
-                      )
-                      is True
-                  )
+                      "encontrado":
+                          youtube.get(
+                              "encontrado"
+                          )
+                          is True,
 
-              }
+                      "titulo":
+                          youtube.get(
+                              "titulo_ytmusic"
+                          )
+                          or "",
 
+                      "artistas":
+                          youtube.get(
+                              "artistas_ytmusic"
+                          )
+                          or [],
+
+                      "url":
+                          youtube_url,
+
+                      "video_id":
+                          youtube.get(
+                              "video_id"
+                          )
+                          or "",
+
+                      "puntuacion":
+                          youtube.get(
+                              "mejor_puntuacion"
+                          )
+                          or 0.0,
+
+                      "version_compatible":
+                          youtube.get(
+                              "version_compatible"
+                          )
+                          is True
+                  },
+
+              "apple_music":
+                  {
+
+                      "encontrado":
+                          apple.get(
+                              "encontrado"
+                          )
+                          is True,
+
+                      "titulo":
+                          apple.get(
+                              "titulo_apple"
+                          )
+                          or "",
+
+                      "artista":
+                          apple.get(
+                              "artista_apple"
+                          )
+                          or "",
+
+                      "album":
+                          apple.get(
+                              "album_apple"
+                          )
+                          or "",
+
+                      "url":
+                          apple.get(
+                              "apple_music_url"
+                          )
+                          or "",
+
+                      "preview":
+                          apple_preview,
+
+                      "isrc":
+                          apple_isrc,
+
+                      "isrc_status":
+                          apple_isrc_status,
+
+                      "duracion_segundos":
+                          apple.get(
+                              "duracion_apple_segundos"
+                          ),
+
+                      "fecha":
+                          apple.get(
+                              "fecha_apple"
+                          )
+                          or "",
+
+                      "puntuacion":
+                          apple.get(
+                              "mejor_puntuacion"
+                          )
+                          or 0.0,
+
+                      "version_compatible":
+                          apple.get(
+                              "version_compatible"
+                          )
+                          is True
+                  }
           }
 
-
-          # ==================================================
+          # --------------------------------------------------
           # GUARDAR
-          # ==================================================
+          # --------------------------------------------------
 
           with open(
               "publication_result.json",
@@ -792,15 +1051,23 @@ jobs:
                   indent=2
               )
 
-
-          # ==================================================
+          # --------------------------------------------------
           # MOSTRAR
-          # ==================================================
+          # --------------------------------------------------
 
           print("")
-          print("========================================")
-          print("RESULTADO FINAL DE LA PUBLICACIÓN")
-          print("========================================")
+          print(
+              "========================================"
+          )
+
+          print(
+              "RESULTADO FINAL DE LA PUBLICACIÓN"
+          )
+
+          print(
+              "========================================"
+          )
+
           print("")
 
           print(
@@ -813,76 +1080,129 @@ jobs:
 
           print("")
 
-
-          # ==================================================
-          # VALIDACIONES
-          # ==================================================
+          # --------------------------------------------------
+          # VALIDACIÓN
+          # --------------------------------------------------
 
           errors = []
 
-
-          if not final["titulo_publicacion"]:
+          # Deezer
+          if not final[
+              "titulo_publicacion"
+          ]:
 
               errors.append(
                   "Falta titulo_publicacion."
               )
 
-
-          if not final["artistas"]:
+          if not final[
+              "artistas"
+          ]:
 
               errors.append(
                   "Faltan artistas."
               )
 
-
-          if not final["duracion"]:
+          if not final[
+              "duracion"
+          ]:
 
               errors.append(
                   "Falta duración."
               )
 
-
-          if not final["fecha"]:
+          if not final[
+              "fecha"
+          ]:
 
               errors.append(
                   "Falta fecha."
               )
 
-
-          if not final["deezer_url"]:
+          if not final[
+              "deezer_url"
+          ]:
 
               errors.append(
                   "Falta URL de Deezer."
               )
 
-
-          if not final["youtube_music"]["encontrado"]:
+          # YouTube
+          if not final[
+              "youtube_music"
+          ][
+              "encontrado"
+          ]:
 
               errors.append(
                   "No se encontró una coincidencia válida en YouTube Music."
               )
 
-
-          if not final["youtube_music"]["url"]:
+          if not final[
+              "youtube_music"
+          ][
+              "url"
+          ]:
 
               errors.append(
                   "YouTube Music no devolvió una URL."
               )
 
-
-          if not final["youtube_music"]["version_compatible"]:
+          if not final[
+              "youtube_music"
+          ][
+              "version_compatible"
+          ]:
 
               errors.append(
-                  "La coincidencia de YouTube Music no es compatible con la versión de Deezer."
+                  "La coincidencia de YouTube Music no es compatible con Deezer."
               )
 
+          # Apple
+          if not final[
+              "apple_music"
+          ][
+              "encontrado"
+          ]:
 
-          # ==================================================
-          # RESULTADO
-          # ==================================================
+              errors.append(
+                  "No se encontró una coincidencia válida en Apple Music."
+              )
 
-          print("========================================")
+          if not final[
+              "apple_music"
+          ][
+              "url"
+          ]:
 
+              errors.append(
+                  "Apple Music no devolvió una URL."
+              )
+
+          if not final[
+              "apple_music"
+          ][
+              "version_compatible"
+          ]:
+
+              errors.append(
+                  "La coincidencia de Apple Music no es compatible con Deezer."
+              )
+
+          # Preview
+          if not final[
+              "preview"
+          ][
+              "url"
+          ]:
+
+              errors.append(
+                  "No se encontró ningún preview disponible."
+              )
+
+          print(
+              "========================================"
+          )
 
           if errors:
 
@@ -904,7 +1224,6 @@ jobs:
 
               sys.exit(1)
 
-
           print(
               "PRUEBA EXITOSA"
           )
@@ -912,5 +1231,19 @@ jobs:
           print(
               "========================================"
           )
+
+          print("")
+
+          print(
+              f"Preview seleccionado: "
+              f"{final['preview']['fuente']}"
+          )
+
+          print(
+              f"Escuchar seleccionado: "
+              f"{final['escuchar']['fuente']}"
+          )
+
+          print("")
 
           PY
