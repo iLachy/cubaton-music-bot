@@ -30,6 +30,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests ytmusicapi
 
+          echo ""
+          echo "========================================"
+          echo "VERIFICANDO FFMPEG / FFPROBE"
+          echo "========================================"
+
+          ffmpeg -version
+          echo ""
+          ffprobe -version
+          echo ""
+
       - name: Mostrar parámetros de prueba
         run: |
           echo "========================================"
@@ -339,14 +349,6 @@ jobs:
 
           # -------------------------------------------------
           # CONVERSIÓN DE DURACIÓN
-          #
-          # Deezer actualmente proporciona la duración de la
-          # pista como texto MM:SS, por ejemplo:
-          #
-          # 03:29
-          #
-          # Si duracion_segundos no viene directamente,
-          # la calculamos a partir de duracion.
           # -------------------------------------------------
 
           if (
@@ -422,10 +424,6 @@ jobs:
 
                   print(
                       f"Pista: {titulo_publicacion}"
-                  )
-
-                  print(
-                      f"Track ID: {deezer_track_id if 'deezer_track_id' in locals() else ''}"
                   )
 
                   sys.exit(1)
@@ -605,13 +603,6 @@ jobs:
 
           # -------------------------------------------------
           # music_input.json
-          #
-          # Este archivo representa EXCLUSIVAMENTE la pista
-          # que se está publicando.
-          #
-          # Esto es especialmente importante para EP/álbum:
-          # el objeto raíz puede representar al lanzamiento,
-          # mientras que aquí debe estar la pista seleccionada.
           # -------------------------------------------------
 
           music_input = {
@@ -995,15 +986,6 @@ jobs:
           import json
           import sys
 
-
-          # -------------------------------------------------
-          # La fuente de los metadatos de la pista es
-          # music_input.json.
-          #
-          # Esto evita utilizar accidentalmente los metadatos
-          # del EP/álbum raíz después de haber seleccionado
-          # una pista concreta.
-          # -------------------------------------------------
 
           with open(
               "music_input.json",
@@ -1667,6 +1649,10 @@ jobs:
           )
 
 
+          # -------------------------------------------------
+          # VALIDACIÓN MENSAJE 1
+          # -------------------------------------------------
+
           if mensaje_1.get("tipo") != "photo":
 
               print(
@@ -1703,6 +1689,19 @@ jobs:
               sys.exit(1)
 
 
+          # -------------------------------------------------
+          # VALIDACIÓN MENSAJE 2
+          #
+          # El formatter actual utiliza:
+          #
+          # "audio": {
+          #     "url": "...",
+          #     "fuente": "Apple Music"
+          # }
+          #
+          # Por tanto NO debemos buscar mensaje_2["preview"].
+          # -------------------------------------------------
+
           if mensaje_2.get("tipo") != "audio":
 
               print(
@@ -1712,20 +1711,127 @@ jobs:
               sys.exit(1)
 
 
-          if not mensaje_2.get("preview"):
+          audio = (
+              mensaje_2.get(
+                  "audio"
+              )
+          )
+
+
+          if isinstance(
+              audio,
+              dict
+          ):
+
+              preview_url = (
+                  audio.get(
+                      "url"
+                  )
+                  or ""
+              )
+
+              preview_fuente = (
+                  audio.get(
+                      "fuente"
+                  )
+                  or ""
+              )
+
+          elif isinstance(
+              audio,
+              str
+          ):
+
+              preview_url = audio
+
+              preview_fuente = (
+                  mensaje_2.get(
+                      "preview_fuente"
+                  )
+                  or ""
+              )
+
+          else:
+
+              preview_url = (
+                  mensaje_2.get(
+                      "preview"
+                  )
+                  or ""
+              )
+
+              preview_fuente = (
+                  mensaje_2.get(
+                      "preview_fuente"
+                  )
+                  or ""
+              )
+
+
+          if not preview_url:
 
               print(
-                  "ERROR: Falta el preview del mensaje 2."
+                  "ERROR: Falta la URL del preview del mensaje 2."
+              )
+
+              sys.exit(1)
+
+
+          # -------------------------------------------------
+          # VALIDACIÓN DEL BOTÓN
+          #
+          # El formatter actual utiliza reply_markup.
+          # -------------------------------------------------
+
+          reply_markup = (
+              mensaje_2.get(
+                  "reply_markup"
+              )
+              or {}
+          )
+
+
+          inline_keyboard = (
+              reply_markup.get(
+                  "inline_keyboard"
+              )
+              or []
+          )
+
+
+          if not inline_keyboard:
+
+              print(
+                  "ERROR: Falta el botón del mensaje 2."
+              )
+
+              sys.exit(1)
+
+
+          if len(
+              inline_keyboard
+          ) != 1:
+
+              print(
+                  "ERROR: El mensaje 2 debe contener exactamente una fila de botones."
+              )
+
+              sys.exit(1)
+
+
+          if len(
+              inline_keyboard[0]
+          ) != 1:
+
+              print(
+                  "ERROR: El mensaje 2 debe contener exactamente un botón."
               )
 
               sys.exit(1)
 
 
           boton = (
-              mensaje_2.get(
-                  "boton"
-              )
-              or {}
+              inline_keyboard[0][0]
           )
 
 
@@ -1746,6 +1852,10 @@ jobs:
 
               sys.exit(1)
 
+
+          # -------------------------------------------------
+          # INFORMACIÓN
+          # -------------------------------------------------
 
           caption = (
               mensaje_1[
@@ -1786,12 +1896,12 @@ jobs:
 
           print(
               f"Preview: "
-              f"{mensaje_2['preview']}"
+              f"{preview_url}"
           )
 
           print(
               f"Fuente: "
-              f"{mensaje_2['preview_fuente']}"
+              f"{preview_fuente}"
           )
 
           print(
