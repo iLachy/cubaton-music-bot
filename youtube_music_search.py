@@ -1,186 +1,635 @@
 import sys
 import json
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 from ytmusicapi import YTMusic
 
 
-SEARCH_LIMIT = 10
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
 
-# Umbral mínimo para considerar que encontramos una coincidencia.
 MATCH_THRESHOLD = 0.70
 
+TITLE_WEIGHT = 0.50
+ARTIST_WEIGHT = 0.35
+DURATION_WEIGHT = 0.15
+
+MAX_RESULTS = 10
+
+# ============================================================
+# VARIANTES / VERSIONES MUSICALES
+# ============================================================
+
+# Estas etiquetas representan versiones que pueden cambiar
+# sustancialmente la grabación.
+#
+# La comparación se hace de forma normalizada, por lo que:
+#
+# "Original Version"
+# "original version"
+# "ORIGINAL VERSION"
+#
+# se consideran iguales.
+
+VERSION_LABELS = {
+    "original",
+    "original version",
+    "original mix",
+    "album version",
+    "album mix",
+    "radio edit",
+    "radio version",
+    "single version",
+    "single edit",
+    "remix",
+    "remastered",
+    "remaster",
+    "instrumental",
+    "acoustic",
+    "live",
+    "live version",
+    "extended",
+    "extended version",
+    "extended mix",
+    "edit",
+    "version",
+    "demo",
+    "demo version",
+    "club mix",
+    "club version",
+    "radio mix",
+    "vocal mix",
+    "dub mix",
+    "dub version",
+    "sped up",
+    "slowed",
+    "slowed + reverb",
+    "slowed and reverb",
+    "reverb",
+    "nightcore",
+}
+
+
+# ============================================================
+# NORMALIZACIÓN
+# ============================================================
 
 def normalize_text(text):
     """
-    Normaliza texto para realizar comparaciones.
+    Normaliza texto para comparación:
 
-    No modifica el título que finalmente utilizaremos.
-    Solamente crea una representación interna para el matching.
+    - convierte a minúsculas
+    - elimina acentos
+    - elimina espacios duplicados
+    - conserva letras/números
+    - convierte algunos separadores en espacios
     """
 
-    if not text:
+    if text is None:
         return ""
 
-    text = str(text).lower()
+    text = str(text).strip().lower()
 
-    replacements = {
-        "á": "a",
-        "é": "e",
-        "í": "i",
-        "ó": "o",
-        "ú": "u",
-        "ü": "u",
-        "ñ": "n",
-    }
+    text = unicodedata.normalize(
+        "NFKD",
+        text
+    )
 
-    for old, new in replacements.items():
-        text = text.replace(old, new)
+    text = "".join(
+        char
+        for char in text
+        if not unicodedata.combining(char)
+    )
 
-    text = re.sub(r"[^a-z0-9]+", " ", text)
+    # Normalizar separadores frecuentes.
+    text = text.replace(
+        "–",
+        "-"
+    )
 
-    text = re.sub(r"\s+", " ", text).strip()
+    text = text.replace(
+        "—",
+        "-"
+    )
 
-    return text
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
 
 
-def title_similarity(source_title, result_title):
+# ============================================================
+# NORMALIZAR ARTISTA
+# ============================================================
+
+def normalize_artist(text):
     """
-    Calcula la similitud entre el título oficial de nuestro
-    sistema y el título devuelto por YouTube Music.
+    Normalización específica para nombres de artistas.
+    """
 
-    Consideramos especialmente importante el caso en que
-    YouTube Music añada información al final del título.
+    return normalize_text(text)
+
+
+# ============================================================
+# EXTRAER CONTENIDO ENTRE PARÉNTESIS
+# ============================================================
+
+def extract_parenthetical_parts(title):
+    """
+    Extrae textos contenidos entre paréntesis.
 
     Ejemplo:
 
-        Le Metí
-        Le Metí (Prod. by El Bandolero)
+    "Levels (Original Version)"
 
-    Esto debe considerarse una coincidencia fuerte.
+    devuelve:
+
+    ["Original Version"]
     """
 
-    source = normalize_text(source_title)
-    result = normalize_text(result_title)
+    if not title:
+        return []
 
-    if not source or not result:
+    parts = re.findall(
+        r"\(([^()]*)\)",
+        str(title)
+    )
+
+    return [
+        normalize_text(part)
+        for part in parts
+        if normalize_text(part)
+    ]
+
+
+# ============================================================
+# EXTRAER CONTENIDO ENTRE CORCHETES
+# ============================================================
+
+def extract_bracket_parts(title):
+    """
+    Extrae textos contenidos entre corchetes.
+
+    Ejemplo:
+
+    "Song [Remix]"
+
+    devuelve:
+
+    ["Remix"]
+    """
+
+    if not title:
+        return []
+
+    parts = re.findall(
+        r"\[([^\[\]]*)\]",
+        str(title)
+    )
+
+    return [
+        normalize_text(part)
+        for part in parts
+        if normalize_text(part)
+    ]
+
+
+# ============================================================
+# DETECTAR ETIQUETAS DE VERSIÓN
+# ============================================================
+
+def extract_version_labels(title):
+    """
+    Extrae etiquetas relevantes de versión.
+
+    Se consideran principalmente las expresiones dentro
+    de paréntesis o corchetes.
+
+    Ejemplo:
+
+    "Levels (Original Version)"
+
+    -> {"original version"}
+
+    "Song (Remix)"
+
+    -> {"remix"}
+    """
+
+    labels = set()
+
+    parenthetical_parts = (
+        extract_parenthetical_parts(title)
+    )
+
+    bracket_parts = (
+        extract_bracket_parts(title)
+    )
+
+    all_parts = (
+        parenthetical_parts
+        + bracket_parts
+    )
+
+    for part in all_parts:
+
+        normalized_part = normalize_text(
+            part
+        )
+
+        if not normalized_part:
+            continue
+
+        # Coincidencia exacta.
+        if normalized_part in VERSION_LABELS:
+
+            labels.add(
+                normalized_part
+            )
+
+            continue
+
+        # Algunas etiquetas pueden aparecer
+        # acompañadas de información adicional.
+        #
+        # Ejemplo:
+        # "Remix by DJ X"
+        #
+        # En esos casos detectamos la etiqueta base.
+
+        for label in VERSION_LABELS:
+
+            pattern = (
+                r"\b"
+                + re.escape(label)
+                + r"\b"
+            )
+
+            if re.search(
+                pattern,
+                normalized_part
+            ):
+
+                labels.add(
+                    label
+                )
+
+    return labels
+
+
+# ============================================================
+# DETECTAR DIFERENCIA DE VERSIÓN
+# ============================================================
+
+def version_compatibility(
+    source_title,
+    candidate_title
+):
+    """
+    Determina si la variante/version del resultado de
+    YouTube Music es compatible con la de Deezer.
+
+    Devuelve:
+
+        {
+            "compatible": True/False,
+            "source_versions": [...],
+            "candidate_versions": [...],
+            "reason": "..."
+        }
+
+    Reglas:
+
+    1. Si ninguno tiene etiqueta de versión:
+       compatible.
+
+    2. Si ambos tienen las mismas etiquetas:
+       compatible.
+
+    3. Si Deezer tiene una versión específica y YTM
+       tiene otra diferente:
+       incompatible.
+
+    4. Si Deezer tiene una versión específica y YTM
+       no indica ninguna versión:
+       incompatible para las variantes consideradas
+       críticas.
+
+    Esto evita falsos positivos como:
+
+        Levels (Original Version)
+        ->
+        Levels (Instrumental)
+    """
+
+    source_versions = extract_version_labels(
+        source_title
+    )
+
+    candidate_versions = extract_version_labels(
+        candidate_title
+    )
+
+    # --------------------------------------------------------
+    # Ninguno especifica versión.
+    # --------------------------------------------------------
+
+    if not source_versions and not candidate_versions:
+
+        return {
+            "compatible": True,
+            "source_versions": [],
+            "candidate_versions": [],
+            "reason": "Sin etiquetas de versión."
+        }
+
+    # --------------------------------------------------------
+    # Ambos tienen exactamente la misma versión.
+    # --------------------------------------------------------
+
+    if source_versions == candidate_versions:
+
+        return {
+            "compatible": True,
+            "source_versions": sorted(
+                source_versions
+            ),
+            "candidate_versions": sorted(
+                candidate_versions
+            ),
+            "reason": "Las etiquetas de versión coinciden."
+        }
+
+    # --------------------------------------------------------
+    # Deezer tiene versión y YTM no.
+    # --------------------------------------------------------
+
+    if source_versions and not candidate_versions:
+
+        return {
+            "compatible": False,
+            "source_versions": sorted(
+                source_versions
+            ),
+            "candidate_versions": [],
+            "reason": (
+                "Deezer especifica una versión "
+                "que YouTube Music no especifica."
+            )
+        }
+
+    # --------------------------------------------------------
+    # YTM tiene versión y Deezer no.
+    # --------------------------------------------------------
+
+    if not source_versions and candidate_versions:
+
+        return {
+            "compatible": False,
+            "source_versions": [],
+            "candidate_versions": sorted(
+                candidate_versions
+            ),
+            "reason": (
+                "YouTube Music especifica una versión "
+                "que Deezer no especifica."
+            )
+        }
+
+    # --------------------------------------------------------
+    # Ambos tienen versiones diferentes.
+    # --------------------------------------------------------
+
+    return {
+        "compatible": False,
+        "source_versions": sorted(
+            source_versions
+        ),
+        "candidate_versions": sorted(
+            candidate_versions
+        ),
+        "reason": (
+            "Las etiquetas de versión son diferentes."
+        )
+    }
+
+
+# ============================================================
+# COINCIDENCIA DE TÍTULO
+# ============================================================
+
+def title_similarity(
+    source_title,
+    candidate_title
+):
+    """
+    Calcula similitud entre títulos.
+
+    Se utiliza el título completo, incluyendo las variantes.
+
+    Casos:
+
+    "Le Metí (Prod. by El Bandolero)"
+    ->
+    mismo título
+    ->
+    1.0
+
+    "Levels (Original Version)"
+    ->
+    "Levels (Instrumental)"
+    ->
+    similitud parcial
+    """
+
+    source = normalize_text(
+        source_title
+    )
+
+    candidate = normalize_text(
+        candidate_title
+    )
+
+    if not source or not candidate:
         return 0.0
 
-    # Coincidencia exacta.
-    if source == result:
+    if source == candidate:
         return 1.0
 
-    # Si el resultado de YTM comienza exactamente con nuestro
-    # título, consideramos que probablemente se trata de una
-    # versión enriquecida del mismo título.
-    if result.startswith(source + " "):
+    # --------------------------------------------------------
+    # Coincidencia cuando YTM empieza con nuestro título.
+    # --------------------------------------------------------
+
+    if candidate.startswith(
+        source + " "
+    ):
+
         return 0.95
 
-    # También contemplamos directamente el caso de paréntesis.
-    if result.startswith(source + "("):
+    if candidate.startswith(
+        source + "("
+    ):
+
         return 0.95
 
-    # Comparación general como fallback.
+    # --------------------------------------------------------
+    # Similaridad general.
+    # --------------------------------------------------------
+
     return SequenceMatcher(
         None,
         source,
-        result
+        candidate
     ).ratio()
 
 
-def get_result_artists(result):
-    """
-    Obtiene los nombres de los artistas de un resultado de YTM.
-    """
+# ============================================================
+# COINCIDENCIA DE ARTISTAS
+# ============================================================
 
-    artists = result.get("artists") or []
-
-    names = []
-
-    for artist in artists:
-
-        name = artist.get("name")
-
-        if name and name not in names:
-            names.append(name)
-
-    return names
-
-
-def artists_similarity(source_artists, result_artists):
-    """
-    Compara los artistas de Deezer con los artistas de YTM.
-
-    No exigimos coincidencia exacta de cantidad porque una
-    plataforma puede mostrar colaboradores de forma diferente.
-    """
-
-    if not source_artists or not result_artists:
-        return 0.0
-
-    normalized_source = [
-        normalize_text(artist)
-        for artist in source_artists
-        if artist
-    ]
-
-    normalized_result = [
-        normalize_text(artist)
-        for artist in result_artists
-        if artist
-    ]
-
-    if not normalized_source or not normalized_result:
-        return 0.0
-
-    matches = 0
-
-    for source_artist in normalized_source:
-
-        best_similarity = 0.0
-
-        for result_artist in normalized_result:
-
-            similarity = SequenceMatcher(
-                None,
-                source_artist,
-                result_artist
-            ).ratio()
-
-            if similarity > best_similarity:
-                best_similarity = similarity
-
-        if best_similarity >= 0.80:
-            matches += 1
-
-    return matches / len(normalized_source)
-
-
-def duration_similarity(
-    source_duration_seconds,
-    result_duration_seconds
+def artist_similarity(
+    source_artists,
+    candidate_artists
 ):
     """
-    Compara las duraciones.
+    Compara artistas.
 
-    Una diferencia de pocos segundos es normal entre plataformas,
-    por lo que no exigimos igualdad exacta.
+    Para cada artista de Deezer busca la mejor coincidencia
+    disponible entre los artistas de YouTube Music.
+
+    Esto permite que YTM tenga menos créditos que Deezer.
+
+    Ejemplo:
+
+    Deezer:
+        Bebeshito
+        Dany Ome
+        Kevincito El 13
+        El Bandolero
+        Roberto Ferrante
+
+    YTM:
+        Bebeshito
+        Dany Ome
+        Kevincito El 13
+        El Bandolero
+
+    El resultado puede seguir siendo aceptado.
+    """
+
+    if not source_artists:
+        return 0.0
+
+    if not candidate_artists:
+        return 0.0
+
+    source_normalized = [
+        normalize_artist(
+            artist
+        )
+        for artist in source_artists
+        if normalize_artist(artist)
+    ]
+
+    candidate_normalized = [
+        normalize_artist(
+            artist
+        )
+        for artist in candidate_artists
+        if normalize_artist(artist)
+    ]
+
+    if not source_normalized:
+        return 0.0
+
+    if not candidate_normalized:
+        return 0.0
+
+    scores = []
+
+    for source_artist in source_normalized:
+
+        best = 0.0
+
+        for candidate_artist in candidate_normalized:
+
+            if (
+                source_artist
+                == candidate_artist
+            ):
+
+                score = 1.0
+
+            else:
+
+                score = SequenceMatcher(
+                    None,
+                    source_artist,
+                    candidate_artist
+                ).ratio()
+
+            if score > best:
+                best = score
+
+        scores.append(
+            best
+        )
+
+    return sum(scores) / len(scores)
+
+
+# ============================================================
+# COINCIDENCIA DE DURACIÓN
+# ============================================================
+
+def duration_similarity(
+    source_duration,
+    candidate_duration
+):
+    """
+    Compara duraciones en segundos.
+
+    Reglas:
+
+        exacta       -> 1.00
+        <= 2 sec     -> 0.95
+        <= 5 sec     -> 0.85
+        <= 10 sec    -> 0.65
+        <= 20 sec    -> 0.35
+        > 20 sec     -> 0.00
     """
 
     if (
-        source_duration_seconds is None
-        or result_duration_seconds is None
+        source_duration is None
+        or candidate_duration is None
     ):
+
         return 0.0
 
     try:
-        source = int(source_duration_seconds)
-        result = int(result_duration_seconds)
-    except (TypeError, ValueError):
+
+        source_duration = int(
+            source_duration
+        )
+
+        candidate_duration = int(
+            candidate_duration
+        )
+
+    except Exception:
+
         return 0.0
 
-    difference = abs(source - result)
+    difference = abs(
+        source_duration
+        - candidate_duration
+    )
 
     if difference == 0:
         return 1.0
@@ -200,393 +649,217 @@ def duration_similarity(
     return 0.0
 
 
+# ============================================================
+# SCORE FINAL
+# ============================================================
+
 def calculate_score(
+    title_score,
+    artist_score,
+    duration_score
+):
+    return (
+        title_score * TITLE_WEIGHT
+        +
+        artist_score * ARTIST_WEIGHT
+        +
+        duration_score * DURATION_WEIGHT
+    )
+
+
+# ============================================================
+# CONVERTIR ARTISTAS YTM
+# ============================================================
+
+def extract_ytmusic_artists(result):
+    """
+    Convierte la estructura de artistas de ytmusicapi
+    a una lista simple de nombres.
+    """
+
+    artists = result.get(
+        "artists"
+    ) or []
+
+    output = []
+
+    for artist in artists:
+
+        if isinstance(
+            artist,
+            dict
+        ):
+
+            name = artist.get(
+                "name"
+            )
+
+        else:
+
+            name = str(
+                artist
+            )
+
+        if name:
+            output.append(
+                name
+            )
+
+    return output
+
+
+# ============================================================
+# PROCESAR RESULTADO YTM
+# ============================================================
+
+def process_result(
+    result,
     source_title,
     source_artists,
-    source_duration_seconds,
-    result
+    source_duration
 ):
     """
-    Calcula la puntuación global de una coincidencia.
-
-    Pesos:
-
-        Título     50 %
-        Artistas   35 %
-        Duración   15 %
+    Convierte un resultado bruto de ytmusicapi
+    en nuestro formato interno.
     """
 
-    result_title = result.get("title") or ""
+    candidate_title = (
+        result.get(
+            "title"
+        )
+        or ""
+    )
 
-    result_artists = get_result_artists(result)
+    candidate_artists = (
+        extract_ytmusic_artists(
+            result
+        )
+    )
 
-    result_duration = result.get(
-        "duration_seconds"
+    candidate_duration = (
+        result.get(
+            "duration_seconds"
+        )
     )
 
     title_score = title_similarity(
         source_title,
-        result_title
+        candidate_title
     )
 
-    artist_score = artists_similarity(
+    artist_score = artist_similarity(
         source_artists,
-        result_artists
+        candidate_artists
     )
 
     duration_score = duration_similarity(
-        source_duration_seconds,
-        result_duration
+        source_duration,
+        candidate_duration
     )
 
-    score = (
-        title_score * 0.50
-        +
-        artist_score * 0.35
-        +
-        duration_score * 0.15
+    score = calculate_score(
+        title_score,
+        artist_score,
+        duration_score
     )
+
+    # --------------------------------------------------------
+    # Validación específica de versiones.
+    # --------------------------------------------------------
+
+    version_check = version_compatibility(
+        source_title,
+        candidate_title
+    )
+
+    # --------------------------------------------------------
+    # Resultado procesado.
+    # --------------------------------------------------------
 
     return {
-        "score": round(score, 4),
-        "title_score": round(title_score, 4),
-        "artist_score": round(artist_score, 4),
-        "duration_score": round(duration_score, 4),
-    }
+        "titulo": candidate_title,
 
+        "artistas": candidate_artists,
 
-def search_youtube_music(
-    titulo_publicacion,
-    artists,
-    isrc=None,
-    duration_seconds=None
-):
-    """
-    Busca una canción en YouTube Music utilizando como fuente
-    maestra los datos proporcionados por Deezer.
-
-    IMPORTANTE:
-
-    titulo_publicacion NO será reemplazado por el título que
-    devuelva YTM.
-
-    YTM solamente nos proporciona:
-
-        - coincidencia
-        - video_id
-        - URL
-        - disponibilidad
-        - datos auxiliares
-    """
-
-    ytmusic = YTMusic()
-
-    artists = [
-        artist.strip()
-        for artist in (artists or [])
-        if artist and artist.strip()
-    ]
-
-    titulo_publicacion = (
-        titulo_publicacion or ""
-    ).strip()
-
-    if not titulo_publicacion:
-        raise ValueError(
-            "titulo_publicacion es obligatorio."
-        )
-
-    if not artists:
-        raise ValueError(
-            "Debe existir al menos un artista."
-        )
-
-    # ---------------------------------------------------------
-    # CONSULTAS
-    # ---------------------------------------------------------
-
-    queries = []
-
-    # Consulta principal:
-    # título editorial completo + todos los artistas.
-    query_full = (
-        f"{titulo_publicacion} "
-        f"{' '.join(artists)}"
-    )
-
-    queries.append(query_full)
-
-    # Consulta con título + artista principal.
-    query_main_artist = (
-        f"{titulo_publicacion} {artists[0]}"
-    )
-
-    if query_main_artist not in queries:
-        queries.append(query_main_artist)
-
-    # Como último recurso, solamente título.
-    if titulo_publicacion not in queries:
-        queries.append(titulo_publicacion)
-
-    # ---------------------------------------------------------
-    # BUSCAR
-    # ---------------------------------------------------------
-
-    candidates = {}
-
-    search_errors = []
-
-    for query in queries:
-
-        try:
-
-            results = ytmusic.search(
-                query,
-                filter="songs",
-                limit=SEARCH_LIMIT,
-                ignore_spelling=False
-            )
-
-        except Exception as e:
-
-            search_errors.append({
-                "query": query,
-                "error": str(e)
-            })
-
-            continue
-
-        for result in results:
-
-            video_id = result.get("videoId")
-
-            if not video_id:
-                continue
-
-            if video_id not in candidates:
-                candidates[video_id] = result
-
-    # ---------------------------------------------------------
-    # RANKING
-    # ---------------------------------------------------------
-
-    ranked = []
-
-    for result in candidates.values():
-
-        scores = calculate_score(
-            source_title=titulo_publicacion,
-            source_artists=artists,
-            source_duration_seconds=duration_seconds,
-            result=result
-        )
-
-        ranked.append({
-            "result": result,
-            **scores
-        })
-
-    ranked.sort(
-        key=lambda item: item["score"],
-        reverse=True
-    )
-
-    # ---------------------------------------------------------
-    # SIN RESULTADOS
-    # ---------------------------------------------------------
-
-    if not ranked:
-
-        return {
-            "encontrado": False,
-
-            "titulo_publicacion": titulo_publicacion,
-
-            "artistas_buscados": artists,
-
-            "isrc": isrc,
-
-            "youtube_music_url": None,
-
-            "video_id": None,
-
-            "titulo_ytmusic": None,
-
-            "artistas_ytmusic": [],
-
-            "disponible": False,
-
-            "mejor_puntuacion": 0,
-
-            "title_score": 0,
-
-            "artist_score": 0,
-
-            "duration_score": 0,
-
-            "resultados": [],
-
-            "errores_busqueda": search_errors
-        }
-
-    # ---------------------------------------------------------
-    # MEJOR RESULTADO
-    # ---------------------------------------------------------
-
-    best = ranked[0]
-
-    result = best["result"]
-
-    score = best["score"]
-
-    video_id = result.get("videoId")
-
-    youtube_music_url = None
-
-    if video_id:
-
-        youtube_music_url = (
-            "https://music.youtube.com/watch?v="
-            + video_id
-        )
-
-    result_artists = get_result_artists(result)
-
-    # Un resultado solamente se considera encontrado si
-    # supera nuestro umbral y está disponible.
-    disponible = result.get("isAvailable")
-
-    encontrado = (
-        score >= MATCH_THRESHOLD
-        and disponible is not False
-    )
-
-    # ---------------------------------------------------------
-    # TOP RESULTADOS
-    # ---------------------------------------------------------
-
-    top_results = []
-
-    for item in ranked[:5]:
-
-        candidate = item["result"]
-
-        candidate_video_id = candidate.get(
-            "videoId"
-        )
-
-        candidate_url = None
-
-        if candidate_video_id:
-
-            candidate_url = (
-                "https://music.youtube.com/watch?v="
-                + candidate_video_id
-            )
-
-        top_results.append({
-            "titulo": candidate.get("title"),
-
-            "artistas": get_result_artists(
-                candidate
-            ),
-
-            "duracion": candidate.get(
-                "duration"
-            ),
-
-            "duracion_segundos": candidate.get(
-                "duration_seconds"
-            ),
-
-            "video_id": candidate_video_id,
-
-            "youtube_music_url": candidate_url,
-
-            "disponible": candidate.get(
-                "isAvailable"
-            ),
-
-            "explicito": candidate.get(
-                "isExplicit"
-            ),
-
-            "score": item["score"],
-
-            "title_score": item[
-                "title_score"
-            ],
-
-            "artist_score": item[
-                "artist_score"
-            ],
-
-            "duration_score": item[
-                "duration_score"
-            ]
-        })
-
-    # ---------------------------------------------------------
-    # RESULTADO FINAL
-    # ---------------------------------------------------------
-
-    return {
-        "encontrado": encontrado,
-
-        # ESTE ES EL TÍTULO OFICIAL DE NUESTRO SISTEMA.
-        "titulo_publicacion": titulo_publicacion,
-
-        "artistas_buscados": artists,
-
-        "isrc": isrc,
-
-        # Información encontrada en YTM.
-        # No sustituye nuestro titulo_publicacion.
-        "titulo_ytmusic": result.get(
-            "title"
-        ),
-
-        "artistas_ytmusic": result_artists,
-
-        "youtube_music_url": youtube_music_url,
-
-        "video_id": video_id,
-
-        "duracion_ytmusic": result.get(
+        "duracion": result.get(
             "duration"
         ),
 
-        "duracion_ytmusic_segundos": result.get(
-            "duration_seconds"
+        "duracion_segundos":
+            candidate_duration,
+
+        "video_id": result.get(
+            "videoId"
         ),
 
-        "disponible": disponible,
+        "youtube_music_url": (
+            "https://music.youtube.com/watch?v="
+            + str(
+                result.get(
+                    "videoId"
+                )
+            )
+        )
+        if result.get("videoId")
+        else None,
+
+        "disponible": result.get(
+            "isAvailable",
+            True
+        ),
 
         "explicito": result.get(
-            "isExplicit"
+            "isExplicit",
+            False
         ),
 
-        "mejor_puntuacion": score,
+        "score": round(
+            score,
+            4
+        ),
 
-        "title_score": best[
-            "title_score"
-        ],
+        "title_score": round(
+            title_score,
+            4
+        ),
 
-        "artist_score": best[
-            "artist_score"
-        ],
+        "artist_score": round(
+            artist_score,
+            4
+        ),
 
-        "duration_score": best[
-            "duration_score"
-        ],
+        "duration_score": round(
+            duration_score,
+            4
+        ),
 
-        "resultados": top_results,
+        "version_compatible":
+            version_check[
+                "compatible"
+            ],
 
-        "errores_busqueda": search_errors
+        "source_versions":
+            version_check[
+                "source_versions"
+            ],
+
+        "candidate_versions":
+            version_check[
+                "candidate_versions"
+            ],
+
+        "version_reason":
+            version_check[
+                "reason"
+            ],
     }
 
 
-def main():
+# ============================================================
+# ARGUMENTOS
+# ============================================================
+
+def parse_arguments():
 
     if len(sys.argv) < 3:
 
@@ -597,10 +870,10 @@ def main():
                     "error": (
                         "Uso: "
                         "python youtube_music_search.py "
-                        "\"TITULO_PUBLICACION\" "
-                        "\"ARTISTA1, ARTISTA2\" "
-                        "[ISRC] "
-                        "[DURACION_SEGUNDOS]"
+                        "\"titulo_publicacion\" "
+                        "\"artistas\" "
+                        "[isrc] "
+                        "[duracion_segundos]"
                     )
                 },
                 ensure_ascii=False,
@@ -610,22 +883,19 @@ def main():
 
         sys.exit(1)
 
-    titulo_publicacion = sys.argv[1]
+    titulo_publicacion = (
+        sys.argv[1]
+    )
 
-    artists = [
-        artist.strip()
-        for artist in sys.argv[2].split(",")
-        if artist.strip()
-    ]
+    artists_string = (
+        sys.argv[2]
+    )
 
-    isrc = None
-
-    if len(sys.argv) >= 4:
-
-        isrc = (
-            sys.argv[3].strip()
-            or None
-        )
+    isrc = (
+        sys.argv[3]
+        if len(sys.argv) >= 4
+        else None
+    )
 
     duration_seconds = None
 
@@ -637,37 +907,448 @@ def main():
                 sys.argv[4]
             )
 
-        except (TypeError, ValueError):
+        except Exception:
 
             duration_seconds = None
 
+    artists = [
+        artist.strip()
+        for artist in artists_string.split(",")
+        if artist.strip()
+    ]
+
+    return (
+        titulo_publicacion,
+        artists,
+        isrc,
+        duration_seconds
+    )
+
+
+# ============================================================
+# BUSCAR
+# ============================================================
+
+def search_youtube_music(
+    titulo_publicacion,
+    artists,
+    isrc=None,
+    duration_seconds=None
+):
+
+    ytmusic = YTMusic()
+
+    # --------------------------------------------------------
+    # Construir consultas
+    # --------------------------------------------------------
+
+    queries = []
+
+    all_artists = ", ".join(
+        artists
+    )
+
+    if titulo_publicacion and all_artists:
+
+        queries.append(
+            f"{titulo_publicacion} {all_artists}"
+        )
+
+    if titulo_publicacion and artists:
+
+        queries.append(
+            f"{titulo_publicacion} {artists[0]}"
+        )
+
+    if titulo_publicacion:
+
+        queries.append(
+            titulo_publicacion
+        )
+
+    # Eliminar duplicados conservando orden.
+
+    unique_queries = []
+
+    for query in queries:
+
+        if query not in unique_queries:
+
+            unique_queries.append(
+                query
+            )
+
+    # --------------------------------------------------------
+    # Ejecutar búsquedas
+    # --------------------------------------------------------
+
+    raw_results = []
+
+    errors = []
+
+    for query in unique_queries:
+
+        try:
+
+            results = ytmusic.search(
+                query,
+                filter="songs",
+                limit=MAX_RESULTS,
+                ignore_spelling=False
+            )
+
+            raw_results.extend(
+                results
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                {
+                    "query": query,
+                    "error": str(exc)
+                }
+            )
+
+    # --------------------------------------------------------
+    # Eliminar resultados duplicados
+    # --------------------------------------------------------
+
+    unique_results = {}
+
+    for result in raw_results:
+
+        video_id = result.get(
+            "videoId"
+        )
+
+        if not video_id:
+            continue
+
+        if video_id not in unique_results:
+
+            unique_results[
+                video_id
+            ] = result
+
+    # --------------------------------------------------------
+    # Procesar candidatos
+    # --------------------------------------------------------
+
+    processed_results = []
+
+    for result in unique_results.values():
+
+        processed = process_result(
+            result,
+            titulo_publicacion,
+            artists,
+            duration_seconds
+        )
+
+        processed_results.append(
+            processed
+        )
+
+    # --------------------------------------------------------
+    # Ordenar por score
+    # --------------------------------------------------------
+
+    processed_results.sort(
+        key=lambda item: (
+            item["version_compatible"],
+            item["score"]
+        ),
+        reverse=True
+    )
+
+    # --------------------------------------------------------
+    # Buscar mejor candidato COMPATIBLE
+    # --------------------------------------------------------
+
+    compatible_results = [
+        result
+        for result in processed_results
+        if result[
+            "version_compatible"
+        ]
+    ]
+
+    best_compatible = (
+        compatible_results[0]
+        if compatible_results
+        else None
+    )
+
+    # --------------------------------------------------------
+    # Comprobar disponibilidad y threshold
+    # --------------------------------------------------------
+
+    encontrado = False
+    best_result = None
+
+    if best_compatible:
+
+        if (
+            best_compatible["score"]
+            >= MATCH_THRESHOLD
+        ):
+
+            if best_compatible[
+                "disponible"
+            ]:
+
+                encontrado = True
+                best_result = (
+                    best_compatible
+                )
+
+    # --------------------------------------------------------
+    # Construir resultados públicos
+    # --------------------------------------------------------
+
+    top_results = processed_results[
+        :5
+    ]
+
+    # --------------------------------------------------------
+    # Datos de salida
+    # --------------------------------------------------------
+
+    output = {
+
+        "ok": True,
+
+        "data": {
+
+            # ----------------------------------------------
+            # DATOS MAESTROS
+            # ----------------------------------------------
+
+            "encontrado":
+                encontrado,
+
+            "titulo_publicacion":
+                titulo_publicacion,
+
+            "artistas_buscados":
+                artists,
+
+            "isrc":
+                isrc,
+
+            # ----------------------------------------------
+            # DATOS DEL MEJOR RESULTADO ACEPTADO
+            # ----------------------------------------------
+
+            "titulo_ytmusic":
+                (
+                    best_result["titulo"]
+                    if best_result
+                    else None
+                ),
+
+            "artistas_ytmusic":
+                (
+                    best_result["artistas"]
+                    if best_result
+                    else []
+                ),
+
+            "youtube_music_url":
+                (
+                    best_result[
+                        "youtube_music_url"
+                    ]
+                    if best_result
+                    else None
+                ),
+
+            "video_id":
+                (
+                    best_result[
+                        "video_id"
+                    ]
+                    if best_result
+                    else None
+                ),
+
+            "duracion_ytmusic":
+                (
+                    best_result[
+                        "duracion"
+                    ]
+                    if best_result
+                    else None
+                ),
+
+            "duracion_ytmusic_segundos":
+                (
+                    best_result[
+                        "duracion_segundos"
+                    ]
+                    if best_result
+                    else None
+                ),
+
+            "disponible":
+                (
+                    best_result[
+                        "disponible"
+                    ]
+                    if best_result
+                    else False
+                ),
+
+            "explicito":
+                (
+                    best_result[
+                        "explicito"
+                    ]
+                    if best_result
+                    else False
+                ),
+
+            "mejor_puntuacion":
+                (
+                    best_result[
+                        "score"
+                    ]
+                    if best_result
+                    else 0.0
+                ),
+
+            "title_score":
+                (
+                    best_result[
+                        "title_score"
+                    ]
+                    if best_result
+                    else 0.0
+                ),
+
+            "artist_score":
+                (
+                    best_result[
+                        "artist_score"
+                    ]
+                    if best_result
+                    else 0.0
+                ),
+
+            "duration_score":
+                (
+                    best_result[
+                        "duration_score"
+                    ]
+                    if best_result
+                    else 0.0
+                ),
+
+            # ----------------------------------------------
+            # INFORMACIÓN DE VERSIÓN
+            # ----------------------------------------------
+
+            "version_compatible":
+                (
+                    best_result[
+                        "version_compatible"
+                    ]
+                    if best_result
+                    else False
+                ),
+
+            "source_versions":
+                (
+                    best_result[
+                        "source_versions"
+                    ]
+                    if best_result
+                    else sorted(
+                        extract_version_labels(
+                            titulo_publicacion
+                        )
+                    )
+                ),
+
+            "candidate_versions":
+                (
+                    best_result[
+                        "candidate_versions"
+                    ]
+                    if best_result
+                    else []
+                ),
+
+            "version_reason":
+                (
+                    best_result[
+                        "version_reason"
+                    ]
+                    if best_result
+                    else (
+                        "No existe un candidato "
+                        "compatible que supere "
+                        "el umbral."
+                    )
+                ),
+
+            # ----------------------------------------------
+            # CANDIDATOS
+            # ----------------------------------------------
+
+            "resultados":
+                top_results,
+
+            # ----------------------------------------------
+            # ERRORES
+            # ----------------------------------------------
+
+            "errores_busqueda":
+                errors
+        }
+    }
+
+    return output
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
     try:
 
+        (
+            titulo_publicacion,
+            artists,
+            isrc,
+            duration_seconds
+        ) = parse_arguments()
+
         result = search_youtube_music(
-            titulo_publicacion=titulo_publicacion,
-            artists=artists,
-            isrc=isrc,
-            duration_seconds=duration_seconds
+            titulo_publicacion,
+            artists,
+            isrc,
+            duration_seconds
         )
 
         print(
             json.dumps(
-                {
-                    "ok": True,
-                    "data": result
-                },
+                result,
                 ensure_ascii=False,
                 indent=2
             )
         )
 
-    except Exception as e:
+    except Exception as exc:
 
         print(
             json.dumps(
                 {
                     "ok": False,
-                    "error": str(e)
+                    "error": str(exc)
                 },
                 ensure_ascii=False,
                 indent=2
