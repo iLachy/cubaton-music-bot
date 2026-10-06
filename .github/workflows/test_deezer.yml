@@ -1,31 +1,41 @@
-name: Debug Deezer JSON
+name: Test Deezer Extractor
 
 on:
   workflow_dispatch:
-    inputs:
-      deezer_url:
-        description: "URL de Deezer a analizar"
-        required: true
-        type: string
 
 jobs:
-  debug:
+  test:
     runs-on: ubuntu-latest
 
     steps:
       - name: Descargar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Verificar archivos
+        run: |
+          echo "========================================"
+          echo "ARCHIVOS DEL REPOSITORIO"
+          echo "========================================"
+          ls -la
 
-      - name: Instalar dependencias
+          echo ""
+          echo "========================================"
+          echo "DEEZE​R_EXTRACTOR.PY"
+          echo "========================================"
+          pwd
+          find . -name "deezer_extractor.py" -type f -print
+
+          echo ""
+          echo "========================================"
+          echo "PRIMERAS 250 LINEAS DEL EXTRACTOR"
+          echo "========================================"
+          sed -n '1,250p' deezer_extractor.py
+
+      - name: Instalar dependencia
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests
 
-      - name: Consultar JSON de Deezer
+      - name: Ejecutar extractor
         run: |
-          python deezer_debug.py "${{ inputs.deezer_url }}"
+          python deezer_extractor.py "https://www.deezer.com/album/1110543002"
