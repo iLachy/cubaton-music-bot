@@ -1,0 +1,319 @@
+name: Test - Apple Music
+
+on:
+  workflow_dispatch:
+    inputs:
+      titulo:
+        description: "Título oficial de Deezer"
+        required: true
+        type: string
+
+      artistas:
+        description: "Artistas separados por coma"
+        required: true
+        type: string
+
+      isrc:
+        description: "ISRC"
+        required: false
+        default: ""
+        type: string
+
+      duracion_segundos:
+        description: "Duración en segundos"
+        required: false
+        default: ""
+        type: string
+
+      country:
+        description: "Storefront de Apple/iTunes"
+        required: false
+        default: "us"
+        type: string
+
+jobs:
+
+  test-apple-music:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Mostrar parámetros
+        run: |
+          echo "========================================"
+          echo "PRUEBA APPLE MUSIC"
+          echo "========================================"
+
+          echo ""
+          echo "Título:"
+          echo "${{ inputs.titulo }}"
+
+          echo ""
+          echo "Artistas:"
+          echo "${{ inputs.artistas }}"
+
+          echo ""
+          echo "ISRC:"
+          echo "${{ inputs.isrc }}"
+
+          echo ""
+          echo "Duración:"
+          echo "${{ inputs.duracion_segundos }}"
+
+          echo ""
+          echo "Storefront:"
+          echo "${{ inputs.country }}"
+
+          echo ""
+
+      - name: Buscar en Apple Music
+        env:
+          TITULO: ${{ inputs.titulo }}
+          ARTISTAS: ${{ inputs.artistas }}
+          ISRC: ${{ inputs.isrc }}
+          DURACION: ${{ inputs.duracion_segundos }}
+          COUNTRY: ${{ inputs.country }}
+        run: |
+
+          python apple_music_search.py \
+            "$TITULO" \
+            "$ARTISTAS" \
+            "$ISRC" \
+            "$DURACION" \
+            "$COUNTRY" \
+            > apple_music_result.json
+
+          echo "========================================"
+          echo "RESULTADO APPLE MUSIC"
+          echo "========================================"
+
+          cat apple_music_result.json
+
+          echo ""
+
+      - name: Validar resultado
+        run: |
+
+          python - <<'PY'
+
+          import json
+          import sys
+
+          with open(
+              "apple_music_result.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              result = json.load(f)
+
+          print(
+              "========================================"
+          )
+
+          if not result.get("ok"):
+              print(
+                  "PRUEBA FALLIDA"
+              )
+
+              print(
+                  "========================================"
+              )
+
+              print(
+                  "ERROR:"
+              )
+
+              print(
+                  result.get(
+                      "error",
+                      "Error desconocido"
+                  )
+              )
+
+              sys.exit(1)
+
+          data = (
+              result.get(
+                  "data"
+              )
+              or {}
+          )
+
+          encontrado = (
+              data.get(
+                  "encontrado"
+              )
+              is True
+          )
+
+          print(
+              "Apple Music encontrado:"
+          )
+
+          print(
+              encontrado
+          )
+
+          print("")
+
+          print(
+              "Título encontrado:"
+          )
+
+          print(
+              data.get(
+                  "titulo_apple"
+              )
+              or ""
+          )
+
+          print("")
+
+          print(
+              "Artista encontrado:"
+          )
+
+          print(
+              data.get(
+                  "artista_apple"
+              )
+              or ""
+          )
+
+          print("")
+
+          print(
+              "ISRC Apple:"
+          )
+
+          print(
+              data.get(
+                  "isrc_apple"
+              )
+              or ""
+          )
+
+          print("")
+
+          print(
+              "Coincidencia ISRC:"
+          )
+
+          print(
+              data.get(
+                  "isrc_match"
+              )
+              is True
+          )
+
+          print("")
+
+          print(
+              "Puntuación:"
+          )
+
+          print(
+              data.get(
+                  "mejor_puntuacion"
+              )
+              or 0
+          )
+
+          print("")
+
+          print(
+              "Versión compatible:"
+          )
+
+          print(
+              data.get(
+                  "version_compatible"
+              )
+              is True
+          )
+
+          print("")
+
+          print(
+              "Apple Music:"
+          )
+
+          print(
+              data.get(
+                  "apple_music_url"
+              )
+              or ""
+          )
+
+          print("")
+
+          print(
+              "Preview:"
+          )
+
+          print(
+              data.get(
+                  "preview_apple"
+              )
+              or ""
+          )
+
+          print("")
+
+          print(
+              "========================================"
+          )
+
+          if not encontrado:
+              print(
+                  "PRUEBA FALLIDA"
+              )
+
+              print(
+                  "No se encontró una coincidencia válida "
+                  "con preview de Apple."
+              )
+
+              print(
+                  "========================================"
+              )
+
+              sys.exit(1)
+
+          if not data.get(
+              "preview_apple"
+          ):
+              print(
+                  "PRUEBA FALLIDA"
+              )
+
+              print(
+                  "Apple Music encontró la canción, "
+                  "pero no devolvió preview."
+              )
+
+              print(
+                  "========================================"
+              )
+
+              sys.exit(1)
+
+          print(
+              "PRUEBA EXITOSA"
+          )
+
+          print(
+              "========================================"
+
+          )
+
+          PY
