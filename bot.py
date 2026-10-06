@@ -223,6 +223,49 @@ ARTISTAS = [
         "nombre": "Seidy La Niña",
         "channel_id": "UCFqYfgj_7h3ZUkBnyYS-TFg",
     },
+    # --- Artistas nuevos: en la primera integración se publica solo el
+    # --- lanzamiento más reciente de cada canal; lo anterior queda histórico.
+    {
+        "nombre": "Yandito",
+        "channel_id": "UCDBIl4Gc9VJjTSy8g_tve5w",
+        "channel_ids": [
+            "UCDBIl4Gc9VJjTSy8g_tve5w",
+            "UCcXUh7Nrgx2uDJxBrgj5XMQ",
+        ],
+        "solo_ultima_nueva": True,
+    },
+    {
+        "nombre": "Yeyito DK",
+        "channel_id": "UCrP6x4goKf26TaWWHbJM0ZA",
+        "channel_ids": [
+            "UCrP6x4goKf26TaWWHbJM0ZA",
+            "UCwOsxuuwyt--PMDxAXdYYLQ",
+            "UCcr2yCU1UnvRIomc56WxFgA",
+        ],
+        "solo_ultima_nueva": True,
+    },
+    # Los siguientes se configuran por @usuario; el bot obtiene su
+    # channel_id al arrancar (ver resolver_handles_artistas).
+    {
+        "nombre": "Anyelazo",
+        "handle": "@anyelazo_oficial",
+        "solo_ultima_nueva": True,
+    },
+    {
+        "nombre": "El Yohas",
+        "handle": "@el_yohas",
+        "solo_ultima_nueva": True,
+    },
+    {
+        "nombre": "El Ankla",
+        "handle": "@elanklaofficial",
+        "solo_ultima_nueva": True,
+    },
+    {
+        "nombre": "Dj Honda",
+        "handle": "@hondadj2026",
+        "solo_ultima_nueva": True,
+    },
 ]
 
 
@@ -2543,6 +2586,72 @@ def crear_linea_base(
 # PROGRAMA PRINCIPAL
 # ============================================================
 
+def resolver_handle_a_channel_id(handle):
+    """
+    Obtiene el channel_id (UC...) de un canal a partir de su @usuario.
+    Devuelve None si no se logra; en ese caso el artista se omite.
+    """
+    handle = str(handle or "").strip()
+    if not handle:
+        return None
+    if not handle.startswith("@"):
+        handle = "@" + handle
+
+    try:
+        respuesta = requests.get(
+            f"https://www.youtube.com/{handle}",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0 Safari/537.36"
+                ),
+                "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+                "Cookie": "CONSENT=YES+1; SOCS=CAI",
+            },
+            timeout=30,
+        )
+        respuesta.raise_for_status()
+        texto = respuesta.text
+
+        patrones = (
+            r'<link rel="canonical" href="https://www\.youtube\.com/channel/(UC[\w-]{22})"',
+            r'"externalId":"(UC[\w-]{22})"',
+            r'"channelId":"(UC[\w-]{22})"',
+        )
+        for patron in patrones:
+            coincidencia = re.search(patron, texto)
+            if coincidencia:
+                return coincidencia.group(1)
+    except Exception as error:
+        print(f"No se pudo resolver {handle}: {error}")
+
+    return None
+
+
+def resolver_handles_artistas(artistas):
+    """
+    Completa el channel_id de los artistas configurados con "handle".
+    Si no se puede resolver, ese artista se omite en esta ejecución
+    (sin alertas ni cambios en el estado).
+    """
+    resultado = []
+    for artista in artistas:
+        handle = artista.get("handle")
+        if handle and not artista.get("channel_id"):
+            channel_id = resolver_handle_a_channel_id(handle)
+            if not channel_id:
+                print(
+                    f"AVISO: no se pudo resolver {handle} "
+                    f"({artista.get('nombre')}); se omite en esta ejecución."
+                )
+                continue
+            print(f"Resuelto {handle} -> {channel_id}")
+            artista = {**artista, "channel_id": channel_id}
+        resultado.append(artista)
+    return resultado
+
+
 def main():
 
     print(
@@ -2594,6 +2703,9 @@ def main():
             f"({respuesta_token.status_code})."
         )
         raise SystemExit(1)
+
+    # Completa los channel_id de artistas configurados por @usuario.
+    ARTISTAS[:] = resolver_handles_artistas(ARTISTAS)
 
     ytmusic = YTMusic()
 
