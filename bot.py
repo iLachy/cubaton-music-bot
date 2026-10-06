@@ -21,15 +21,6 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = "@Cubaton_Music"
 TELEGRAM_ALERT_CHAT_ID = os.environ.get("TELEGRAM_ALERT_CHAT_ID")
 
-# ============================================================
-# SEGURIDAD DEL FALLBACK
-# ============================================================
-# La búsqueda por artista es complementaria y puede devolver canciones
-# del catálogo que no pertenecen a los listados habituales del canal.
-# Por seguridad queda DESACTIVADA por defecto hasta validarla de forma
-# controlada. Los canales configurados siguen funcionando normalmente.
-ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA = False
-
 # No se publican canciones cuyo año sea anterior al año actual menos este
 # valor (1 = solo año actual y anterior). Las descartadas se registran como
 # históricas. Para pruebas con canciones antiguas, súbelo temporalmente.
@@ -41,7 +32,7 @@ MAX_ANTIGUEDAD_ANIOS = 1
 PUBLICAR_SIN_PORTADA_SI_FALLA = True
 
 # Envía debajo de cada publicación un adelanto de unos 30 segundos
-# (preview oficial que ofrece Deezer para promoción). Si no se encuentra
+# (preview oficial para promoción: Apple Music y, como respaldo, Deezer). Si no se encuentra
 # la canción o falla el envío, simplemente no se envía y no se genera alerta.
 ENVIAR_PREVIEW_AUDIO = True
 
@@ -176,20 +167,10 @@ ARTISTAS = [
             "UCiT8PzlQqtPC7lWFh3--4jw",
             "UCUmbJ10w6Sljv-zIv0iQxNw",
         ],
-        # El segundo canal se incorpora como nueva fuente.
-        # En su primera integración se publica solamente
-        # su lanzamiento más reciente y el resto queda
-        # registrado como histórico.
-        "channels_solo_ultima_nueva": [
-            "UCUmbJ10w6Sljv-zIv0iQxNw",
-        ],
     },
     {
         "nombre": "Los Dele",
         "channel_id": "UCe9SuCBefzhTyPCgiMMvcbA",
-        # Artista nuevo: en la primera integración se publica
-        # solamente su lanzamiento más reciente.
-        "solo_ultima_nueva": True,
     },
     {
         "nombre": "Chocolate MC",
@@ -223,8 +204,6 @@ ARTISTAS = [
         "nombre": "Seidy La Niña",
         "channel_id": "UCFqYfgj_7h3ZUkBnyYS-TFg",
     },
-    # --- Artistas nuevos: en la primera integración se publica solo el
-    # --- lanzamiento más reciente de cada canal; lo anterior queda histórico.
     {
         "nombre": "Yandito",
         "channel_id": "UCDBIl4Gc9VJjTSy8g_tve5w",
@@ -232,7 +211,6 @@ ARTISTAS = [
             "UCDBIl4Gc9VJjTSy8g_tve5w",
             "UCcXUh7Nrgx2uDJxBrgj5XMQ",
         ],
-        "solo_ultima_nueva": True,
     },
     {
         "nombre": "Yeyito DK",
@@ -242,29 +220,24 @@ ARTISTAS = [
             "UCwOsxuuwyt--PMDxAXdYYLQ",
             "UCcr2yCU1UnvRIomc56WxFgA",
         ],
-        "solo_ultima_nueva": True,
     },
-    # Los siguientes se configuran por @usuario; el bot obtiene su
-    # channel_id al arrancar (ver resolver_handles_artistas).
+    # Estos se configuran por @usuario; el bot obtiene su channel_id
+    # al arrancar (ver resolver_handles_artistas).
     {
         "nombre": "Anyelazo",
         "handle": "@anyelazo_oficial",
-        "solo_ultima_nueva": True,
     },
     {
         "nombre": "El Yohas",
         "handle": "@el_yohas",
-        "solo_ultima_nueva": True,
     },
     {
         "nombre": "El Ankla",
         "handle": "@elanklaofficial",
-        "solo_ultima_nueva": True,
     },
     {
         "nombre": "Dj Honda",
         "handle": "@hondadj2026",
-        "solo_ultima_nueva": True,
     },
 ]
 
@@ -1067,178 +1040,6 @@ def obtener_lanzamientos_fuente_nueva(
                 )
 
     return canciones
-
-
-def buscar_lanzamientos_adicionales_por_artista(
-    ytmusic,
-    artista,
-    canciones_procesadas,
-):
-    """
-    Fallback complementario para detectar lanzamientos que YouTube Music
-    no exponga en las secciones habituales del canal.
-
-    La búsqueda se hace por el artista monitorizado y solamente se aceptan
-    resultados donde el artista aparezca realmente entre los artistas
-    acreditados del resultado.
-
-    No sustituye los canales configurados: añade una segunda vía de detección.
-    """
-
-    nombre = str(artista.get("nombre") or "").strip()
-    if not nombre:
-        return []
-
-    consultas = [
-        nombre,
-        f"{nombre} 2026",
-    ]
-
-    artista_normalizado = normalizar_nombre(nombre)
-    encontrados = {}
-
-    print(
-        f"Búsqueda adicional por artista: {nombre}"
-    )
-
-    for consulta in consultas:
-        try:
-            resultados = ytmusic.search(
-                consulta,
-                filter="songs",
-                limit=20,
-                ignore_spelling=True,
-            )
-        except Exception as error:
-            print(
-                f"  ERROR en búsqueda adicional '{consulta}': {error}"
-            )
-            continue
-
-        for posicion, resultado in enumerate(resultados):
-            if not isinstance(resultado, dict):
-                continue
-
-            video_id = resultado.get("videoId")
-            titulo = resultado.get("title")
-            if not video_id or not titulo:
-                continue
-
-            cancion_id = f"video:{video_id}"
-            if cancion_id in canciones_procesadas:
-                continue
-            if video_id in encontrados:
-                continue
-
-            artistas_resultado = extraer_artistas_de_objetos(
-                resultado.get("artists")
-            )
-            claves_resultado = {
-                normalizar_nombre(x)
-                for x in artistas_resultado
-                if x
-            }
-
-            # El artista monitorizado debe aparecer de forma explícita.
-            if artista_normalizado not in claves_resultado:
-                continue
-
-            album_resultado = resultado.get("album")
-            album_id = None
-            titulo_album = None
-            if isinstance(album_resultado, dict):
-                album_id = (
-                    album_resultado.get("id")
-                    or album_resultado.get("browseId")
-                )
-                titulo_album = (
-                    album_resultado.get("name")
-                    or album_resultado.get("title")
-                )
-
-            encontrados[video_id] = {
-                "resultado": resultado,
-                "album_id": album_id,
-                "titulo_album": titulo_album,
-                # Los primeros resultados reciben prioridad dentro del
-                # fallback cuando se aplica la regla "solo la última".
-                "orden_fallback": 100000 - posicion,
-            }
-
-    nuevas = []
-
-    for video_id, datos in encontrados.items():
-        resultado = datos["resultado"]
-        album_id = datos["album_id"]
-        titulo_album = datos["titulo_album"]
-
-        anio = str(resultado.get("year") or "")
-
-        # Si el año no viene en search(), intentamos obtenerlo desde el
-        # álbum exacto ya identificado. Esto además valida que el album.id
-        # siga siendo utilizable para la portada posterior.
-        datos_album = None
-        if album_id:
-            try:
-                datos_album = ytmusic.get_album(album_id)
-            except Exception:
-                datos_album = None
-
-            if datos_album:
-                anio = str(datos_album.get("year") or anio)
-                titulo_album = (
-                    datos_album.get("title")
-                    or titulo_album
-                )
-
-        artistas = extraer_artistas_de_objetos(
-            resultado.get("artists")
-        )
-
-        cancion = crear_cancion_desde_track(
-            {
-                "videoId": video_id,
-                "title": resultado.get("title"),
-                "artists": [
-                    {"name": nombre_artista}
-                    for nombre_artista in artistas
-                ],
-            },
-            nombre,
-            "Single",
-            anio,
-            titulo_lanzamiento=(titulo_album or resultado.get("title")),
-            album_browse_id=album_id,
-        )
-
-        if not cancion:
-            continue
-
-        # El fallback es complementario a las fuentes de canal. Si la fuente
-        # ya tiene una regla especial de primera integración, esa regla se
-        # conserva para las canciones descubiertas por esta vía.
-        cancion["_canal_origen"] = artista.get(
-            "channel_id"
-        ) or f"artist-search:{nombre}"
-        cancion["_orden_origen"] = datos["orden_fallback"]
-        cancion["_fuente_solo_ultima"] = bool(
-            artista.get("solo_ultima_nueva", False)
-            or artista.get("channels_solo_ultima_nueva")
-        )
-        cancion["_fuente_busqueda_adicional"] = True
-
-        nuevas.append(cancion)
-
-    if nuevas:
-        print(
-            f"  Búsqueda adicional -> {len(nuevas)} posible(s) lanzamiento(s)"
-        )
-    else:
-        print(
-            "  Búsqueda adicional -> sin candidatos nuevos"
-        )
-
-    return nuevas
 
 
 def obtener_lanzamientos_artista(
@@ -2113,13 +1914,13 @@ def buscar_preview_apple(cancion):
 
 def buscar_preview(cancion):
     """
-    Busca el preview en Deezer y, si falla, en Apple Music.
+    Busca el preview en Apple Music y, si falla, en Deezer.
     Descarga el audio de antemano. Devuelve un diccionario con el
     contenido o None si no hay preview disponible.
     """
     fuentes = (
-        ("Deezer", buscar_preview_deezer, "mp3", "audio/mpeg"),
         ("Apple Music", buscar_preview_apple, "m4a", "audio/mp4"),
+        ("Deezer", buscar_preview_deezer, "mp3", "audio/mpeg"),
     )
 
     for nombre, funcion, extension, mime in fuentes:
@@ -2141,7 +1942,7 @@ def buscar_preview(cancion):
         except Exception as error:
             print(f"Preview: fallo con {nombre}: {error}")
 
-    print("Preview: sin coincidencia en Deezer ni Apple Music.")
+    print("Preview: sin coincidencia en Apple Music ni Deezer.")
     return None
 
 
@@ -2768,39 +2569,6 @@ def main():
                 artista
             )
         )
-
-        # --------------------------------------------------------
-        # FALLBACK DE BÚSQUEDA POR ARTISTA
-        # --------------------------------------------------------
-        # Si las fuentes habituales no contienen novedades, existe un
-        # fallback complementario por artista. Por seguridad permanece
-        # desactivado hasta completar una validación controlada, porque
-        # una búsqueda general puede devolver catálogo histórico.
-        ids_habituales_nuevos = any(
-            cancion.get("id") not in canciones_publicadas
-            for cancion in canciones
-            if cancion.get("id")
-        )
-
-        if (
-            ACTIVAR_BUSQUEDA_ADICIONAL_POR_ARTISTA
-            and not ids_habituales_nuevos
-        ):
-            canciones_fallback = buscar_lanzamientos_adicionales_por_artista(
-                ytmusic,
-                artista,
-                canciones_procesadas={
-                    cancion.get("id")
-                    for cancion in canciones
-                    if cancion.get("id")
-                },
-            )
-            canciones.extend(canciones_fallback)
-        elif not ids_habituales_nuevos:
-            print(
-                "  Búsqueda adicional por artista: DESACTIVADA "
-                "(modo seguro)"
-            )
 
         # Registra la clave (artista + título) de las canciones ya
         # conocidas, para reconocerlas si reaparecen con otro ID.
