@@ -2,14 +2,16 @@ name: Cubaton Music Bot
 
 on:
   schedule:
-    # Cada 15 minutos. Si el repo es público puedes bajarlo a */5.
-    - cron: "*/15 * * * *"
+    # Red de seguridad: si el ciclo continuo se interrumpe, se reinicia solo.
+    - cron: "17 * * * *"
 
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
+# Solo un ciclo a la vez. Si hay uno en marcha, el siguiente espera su turno.
 concurrency:
   group: cubaton-music-bot
   cancel-in-progress: false
@@ -17,7 +19,12 @@ concurrency:
 jobs:
   ejecutar-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355
+
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Descargar repositorio
@@ -32,19 +39,61 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Ejecutar Cubaton Music Bot
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
-        run: python bot.py
+      - name: Ciclo del bot (cada 5 minutos durante unas 5 h 35 min)
+        run: |
+          INTERVALO=300          # segundos entre el inicio de cada ejecución
+          DURACION_MAX=20100     # 5 h 35 min; luego se relanza solo
+          FALLOS_SEGUIDOS=0
 
-      # always(): guarda el estado aunque el bot falle a mitad,
-      # para no volver a publicar canciones ya enviadas.
-      - name: Guardar estado de lanzamientos
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          while [ "$SECONDS" -lt "$DURACION_MAX" ]; do
+            INICIO=$SECONDS
+            echo "::group::Ejecución $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+
+            # Recoge cambios del repo (por ejemplo, un bot.py nuevo).
+            git pull --rebase --autostash origin "${{ github.ref_name }}" \
+              || echo "Aviso: no se pudo actualizar el repositorio."
+
+            if python bot.py; then
+              FALLOS_SEGUIDOS=0
+            else
+              FALLOS_SEGUIDOS=$((FALLOS_SEGUIDOS + 1))
+              echo "El bot terminó con error ($FALLOS_SEGUIDOS seguido/s)."
+            fi
+            echo "::endgroup::"
+
+            # Guarda el estado en GitHub tras cada ejecución.
+            if [ -f state/releases.json ]; then
+              git add state/releases.json
+              if ! git diff --cached --quiet; then
+                git commit -m "Actualizar estado de lanzamientos"
+                git pull --rebase origin "${{ github.ref_name }}" || true
+                git push || echo "Aviso: no se pudo subir el estado."
+              fi
+            fi
+
+            # Fallo persistente: termina en rojo para que GitHub te avise.
+            if [ "$FALLOS_SEGUIDOS" -ge 3 ]; then
+              echo "::error::El bot falló 3 veces seguidas; se detiene el ciclo."
+              exit 1
+            fi
+
+            ESPERA=$((INTERVALO - (SECONDS - INICIO)))
+            if [ "$ESPERA" -lt 30 ]; then ESPERA=30; fi
+            sleep "$ESPERA"
+          done
+
+          # Relanza el ciclo antes de terminar.
+          gh workflow run "Cubaton Music Bot" --ref "${{ github.ref_name }}"
+
+      # Si el ciclo se cancela o se corta, guarda lo pendiente para no
+      # volver a publicar canciones ya enviadas.
+      - name: Guardar estado pendiente
         if: always()
         run: |
           if [ ! -f state/releases.json ]; then
-            echo "No existe estado que guardar."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -54,6 +103,6 @@ jobs:
             echo "No hay cambios en el estado."
           else
             git commit -m "Actualizar estado de lanzamientos"
-            git pull --rebase origin "${{ github.ref_name }}"
-            git push
+            git pull --rebase origin "${{ github.ref_name }}" || true
+            git push || echo "Aviso: no se pudo subir el estado."
           fi
