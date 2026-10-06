@@ -103,8 +103,7 @@ jobs:
               os.environ.get(
                   "TRACK_TITLE",
                   ""
-              )
-              .strip()
+              ).strip()
           )
 
 
@@ -338,6 +337,104 @@ jobs:
           )
 
 
+          # -------------------------------------------------
+          # CONVERSIÓN DE DURACIÓN
+          #
+          # Deezer actualmente proporciona la duración de la
+          # pista como texto MM:SS, por ejemplo:
+          #
+          # 03:29
+          #
+          # Si duracion_segundos no viene directamente,
+          # la calculamos a partir de duracion.
+          # -------------------------------------------------
+
+          if (
+              duracion_segundos is None
+              and duracion
+          ):
+
+              try:
+
+                  partes = (
+                      str(
+                          duracion
+                      )
+                      .strip()
+                      .split(":")
+                  )
+
+
+                  if len(partes) == 2:
+
+                      minutos = int(
+                          partes[0]
+                      )
+
+                      segundos = int(
+                          partes[1]
+                      )
+
+                      duracion_segundos = (
+                          minutos * 60
+                          + segundos
+                      )
+
+                  elif len(partes) == 3:
+
+                      horas = int(
+                          partes[0]
+                      )
+
+                      minutos = int(
+                          partes[1]
+                      )
+
+                      segundos = int(
+                          partes[2]
+                      )
+
+                      duracion_segundos = (
+                          horas * 3600
+                          + minutos * 60
+                          + segundos
+                      )
+
+                  else:
+
+                      raise ValueError(
+                          "Formato de duración no reconocido."
+                      )
+
+
+              except (
+                  TypeError,
+                  ValueError
+              ):
+
+                  print(
+                      "ERROR: No se pudo convertir la duración a segundos."
+                  )
+
+                  print(
+                      f"Duración recibida: {duracion}"
+                  )
+
+                  print(
+                      f"Pista: {titulo_publicacion}"
+                  )
+
+                  print(
+                      f"Track ID: {deezer_track_id if 'deezer_track_id' in locals() else ''}"
+                  )
+
+                  sys.exit(1)
+
+
+          # -------------------------------------------------
+          # DATOS DE PUBLICACIÓN
+          # -------------------------------------------------
+
           nombre_publicacion = (
               track.get(
                   "nombre_publicacion"
@@ -449,7 +546,7 @@ jobs:
           if duracion_segundos is None:
 
               print(
-                  "ERROR: La pista seleccionada no tiene duracion_segundos."
+                  "ERROR: No se pudo determinar duracion_segundos."
               )
 
               print(
@@ -900,7 +997,7 @@ jobs:
 
 
           # -------------------------------------------------
-          # La fuente de los metadatos de la pista ahora es
+          # La fuente de los metadatos de la pista es
           # music_input.json.
           #
           # Esto evita utilizar accidentalmente los metadatos
