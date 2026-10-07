@@ -19,7 +19,7 @@ from ytmusicapi import YTMusic
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 TELEGRAM_CHAT_ID = "@Cubaton_Music"
-TELEGRAM_ALERT_CHAT_ID = os.environ.get("TELEGRAM_ALERT_CHAT_ID")
+TELEGRAM_ALERT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 # No se publican canciones cuyo año sea anterior al año actual menos este
 # valor (1 = solo año actual y anterior). Las descartadas se registran como
@@ -48,12 +48,12 @@ PAUSA_ENTRE_PUBLICACIONES = 2
 # el canal de otro artista (colaboraciones). Solo se consideran las del año
 # actual; las de años anteriores se registran como históricas. La primera vez
 # que se busca para cada artista, todo lo encontrado se registra sin publicar.
-BUSCAR_COLABORACIONES = True
+BUSCAR_COLABORACIONES = False
 
 # Detecta lanzamientos nuevos también en Deezer (suelen llegar antes que a
 # YouTube Music). Requiere "deezer_id" en cada artista. La primera vez que se
 # lee cada artista, todo lo existente se registra sin publicar.
-BUSCAR_EN_DEEZER = True
+BUSCAR_EN_DEEZER = False
 DEEZER_API = "https://api.deezer.com"
 
 STATE_FILE = "state/releases.json"
