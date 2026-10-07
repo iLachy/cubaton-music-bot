@@ -1,0 +1,32 @@
+```yaml
+name: Test - Publication State
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-publication-state:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Mostrar versión de Python
+        run: |
+          python --version
+
+      - name: Verificar publication_state.py
+        run: |
+          test -f publication_state.py
+          echo "✓ publication_state.py encontrado"
+
+      - name: Ejecutar prueba de publication_state.py
+        run: |
+          python publication_state.py
+```
