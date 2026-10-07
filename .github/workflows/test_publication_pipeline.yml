@@ -406,7 +406,8 @@ jobs:
 
                       print(
                           f"ERROR: No se pudo convertir la duración "
-                          f"de la pista {index}: {titulo_publicacion}"
+                          f"de la pista {index}: "
+                          f"{titulo_publicacion}"
                       )
 
                       sys.exit(1)
@@ -1134,6 +1135,12 @@ jobs:
                           or []
                       ),
 
+                  "artistas_lista":
+                      track.get(
+                          "artistas"
+                      )
+                      or [],
+
                   "titulo":
                       track.get(
                           "titulo"
@@ -1177,6 +1184,9 @@ jobs:
 
                   "deezer_url":
                       deezer_url,
+
+                  "preview_deezer":
+                      deezer_preview,
 
                   "isrc":
                       track.get(
@@ -1710,7 +1720,7 @@ jobs:
 
 
           # -------------------------------------------------
-          # RESULTADO COMPLETO
+          # RESULTADO COMPLETO ORIGINAL
           # -------------------------------------------------
 
           resultado_completo = {
@@ -1733,6 +1743,11 @@ jobs:
               "fecha":
                   tracks_data.get(
                       "fecha"
+                  ),
+
+              "portada":
+                  tracks_data.get(
+                      "portada"
                   ),
 
               "deezer_album_id":
@@ -1776,6 +1791,84 @@ jobs:
 
               json.dump(
                   resultado_completo,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
+
+
+          # -------------------------------------------------
+          # RESULTADO CANÓNICO PARA EL WORKFLOW DE PUBLICACIÓN
+          # -------------------------------------------------
+
+          release_processing_result = {
+
+              "ok":
+                  len(
+                      errores_totales
+                  ) == 0,
+
+              "tipo":
+                  tracks_data.get(
+                      "tipo"
+                  ),
+
+              "nombre_publicacion":
+                  tracks_data.get(
+                      "nombre_publicacion"
+                  ),
+
+              "fecha":
+                  tracks_data.get(
+                      "fecha"
+                  ),
+
+              "portada":
+                  tracks_data.get(
+                      "portada"
+                  ),
+
+              "deezer_album_id":
+                  tracks_data.get(
+                      "deezer_album_id"
+                  ),
+
+              "deezer_url":
+                  tracks_data.get(
+                      "deezer_url"
+                  ),
+
+              "total_pistas":
+                  len(
+                      resultados
+                  ),
+
+              "pistas_procesadas":
+                  len(
+                      resultados
+                  ),
+
+              "pistas_fallidas":
+                  len(
+                      errores_totales
+                  ),
+
+              "errores":
+                  errores_totales,
+
+              "pistas":
+                  resultados
+          }
+
+
+          with open(
+              "release_processing_result.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  release_processing_result,
                   f,
                   ensure_ascii=False,
                   indent=2
@@ -1948,18 +2041,20 @@ jobs:
 
           echo ""
 
-          echo "publication_results.json:"
-          cat publication_results.json
+          echo "release_processing_result.json:"
+          cat release_processing_result.json
 
           echo ""
 
           echo "========================================"
-          echo "ARCHIVOS TELEGRAM GENERADOS"
+          echo "ARCHIVOS GENERADOS"
           echo "========================================"
 
           echo ""
 
           ls -lh \
+            release_processing_result.json \
+            publication_results.json \
             publication_result_*.json \
             telegram_result_*.json
 
@@ -1974,4 +2069,26 @@ jobs:
           echo "✓ Procesamiento multi-track completado."
           echo "✓ Orden original de Deezer conservado."
           echo "✓ Formatter validado para todas las pistas."
+          echo "✓ Resultado preparado para publicación."
           echo "✓ Telegram NO fue contactado."
+
+      # =====================================================
+      # 5. SUBIR RESULTADO COMO ARTIFACT
+      #
+      # Este paso permite que el workflow de publicación
+      # descargue exactamente el resultado de ESTA ejecución.
+      # =====================================================
+
+      - name: Subir resultado del procesamiento
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-processing-result
+          path: |
+            release_processing_result.json
+            publication_results.json
+            tracks_input.json
+            deezer_result.json
+            publication_result_*.json
+            telegram_result_*.json
+          if-no-files-found: warn
