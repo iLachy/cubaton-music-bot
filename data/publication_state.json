@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-07T20:02:28.242608+00:00",
+  "releases": {
+    "917540341": {
+      "deezer_album_id": "917540341",
+      "deezer_url": "https://www.deezer.com/mx/album/917540341",
+      "tipo": "",
+      "nombre_publicacion": "LBMA",
+      "fecha": "13-02-2026",
+      "portada": "https://cdn-images.dzcdn.net/images/cover/5a00c1412a939d7e5e953fedcf14f2b1/1000x1000-000000-80-0-0.jpg",
+      "total_pistas": 4,
+      "estado": "partial",
+      "created_at": "2026-10-07T20:02:24.400856+00:00",
+      "updated_at": "2026-10-07T20:02:28.242573+00:00",
+      "pistas": {
+        "3839609781": {
+          "deezer_track_id": "3839609781",
+          "index": 1,
+          "titulo": "Te Amaré (Prod. by El Bandolero x Roberto Ferrante)",
+          "titulo_publicacion": "Te Amaré (Prod. by El Bandolero x Roberto Ferrante)",
+          "artistas": "Bebeshito, Dany Ome, Kevincito El 13, El Bandolero, Roberto Ferrante",
+          "duracion_segundos": 209,
+          "isrc": "ITF252600081",
+          "estado": "completed",
+          "created_at": "2026-10-07T20:02:24.400871+00:00",
+          "updated_at": "2026-10-07T20:02:28.242547+00:00",
+          "portada": {
+            "enviada": true,
+            "message_id": 597
+          },
+          "preview": {
+            "enviada": true,
+            "message_id": 598
+          }
+        },
+        "3839609791": {
+          "deezer_track_id": "3839609791",
+          "index": 2,
+          "titulo": "Quizás",
+          "titulo_publicacion": "Quizás (Prod. by Roberto Ferrante x El Bandolero)",
+          "artistas": "Bebeshito, Dany Ome, Kevincito El 13, Roberto Ferrante, El Bandolero",
+          "duracion_segundos": 142,
+          "isrc": "ITF252600082",
+          "estado": "pending",
+          "created_at": "2026-10-07T20:02:24.400886+00:00",
+          "updated_at": "2026-10-07T20:02:28.242559+00:00",
+          "portada": {
+            "enviada": false,
+            "message_id": null
+          },
+          "preview": {
+            "enviada": false,
+            "message_id": null
+          }
+        },
+        "3839609801": {
+          "deezer_track_id": "3839609801",
+          "index": 3,
+          "titulo": "Machuka",
+          "titulo_publicacion": "Machuka (Prod. by Dj Honda)",
+          "artistas": "Bebeshito, Dany Ome, Kevincito El 13",
+          "duracion_segundos": 221,
+          "isrc": "ITF252600083",
+          "estado": "pending",
+          "created_at": "2026-10-07T20:02:24.400894+00:00",
+          "updated_at": "2026-10-07T20:02:28.242564+00:00",
+          "portada": {
+            "enviada": false,
+            "message_id": null
+          },
+          "preview": {
+            "enviada": false,
+            "message_id": null
+          }
+        },
+        "3839609811": {
+          "deezer_track_id": "3839609811",
+          "index": 4,
+          "titulo": "Se Va",
+          "titulo_publicacion": "Se Va (Prod. by Dj Honda)",
+          "artistas": "Bebeshito, Dany Ome, Kevincito El 13",
+          "duracion_segundos": 198,
+          "isrc": "ITF252600084",
+          "estado": "pending",
+          "created_at": "2026-10-07T20:02:24.400900+00:00",
+          "updated_at": "2026-10-07T20:02:28.242566+00:00",
+          "portada": {
+            "enviada": false,
+            "message_id": null
+          },
+          "preview": {
+            "enviada": false,
+            "message_id": null
+          }
+        }
+      }
+    }
+  }
+}
