@@ -9,24 +9,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar repositorio
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: Mostrar versión de Python
-        run: |
-          python --version
+      - name: Check Python
+        run: python --version
 
-      - name: Verificar publication_state.py
+      - name: Check publication_state.py
         run: |
-          test -f publication_state.py
-          echo "✓ publication_state.py encontrado"
+          if [ ! -f "publication_state.py" ]; then
+            echo "ERROR: publication_state.py no existe en la raíz del repositorio."
+            exit 1
+          fi
 
-      - name: Ejecutar prueba de publication_state.py
-        run: |
-          python publication_state.py
+          echo "OK: publication_state.py encontrado."
+
+      - name: Run publication_state.py test
+        run: python publication_state.py
 ```
