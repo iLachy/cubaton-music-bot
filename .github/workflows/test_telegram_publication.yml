@@ -28,7 +28,26 @@ jobs:
           python-version: "3.12"
 
       # ============================================================
-      # 3. INSTALAR DEPENDENCIAS
+      # 3. INSTALAR FFMPEG / FFPROBE
+      # ============================================================
+      - name: Instalar FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+          echo "=========================================="
+          echo "FFmpeg"
+          echo "=========================================="
+          ffmpeg -version | head -n 1
+
+          echo ""
+          echo "=========================================="
+          echo "FFprobe"
+          echo "=========================================="
+          ffprobe -version | head -n 1
+
+      # ============================================================
+      # 4. INSTALAR DEPENDENCIAS
       # ============================================================
       - name: Instalar dependencias
         run: |
@@ -36,7 +55,7 @@ jobs:
           pip install requests
 
       # ============================================================
-      # 4. DESCARGAR ARTEFACTO DEL RUN DE PROCESAMIENTO
+      # 5. DESCARGAR ARTEFACTO DEL RUN DE PROCESAMIENTO
       # ============================================================
       - name: Descargar artefacto del procesamiento
         uses: actions/download-artifact@v4
@@ -48,7 +67,7 @@ jobs:
           merge-multiple: true
 
       # ============================================================
-      # 5. MOSTRAR CONTENIDO DEL ARTEFACTO
+      # 6. MOSTRAR CONTENIDO DEL ARTEFACTO
       # ============================================================
       - name: Inspeccionar artefactos descargados
         run: |
@@ -76,7 +95,7 @@ jobs:
           cat processing_artifacts/release_processing_result.json
 
       # ============================================================
-      # 6. COPIAR RESULTADO PRINCIPAL
+      # 7. COPIAR RESULTADO PRINCIPAL
       # ============================================================
       - name: Preparar resultado de procesamiento
         run: |
@@ -88,7 +107,7 @@ jobs:
           ls -lh processing_result.json
 
       # ============================================================
-      # 7. VALIDAR ESTRUCTURA GENERAL
+      # 8. VALIDAR ESTRUCTURA GENERAL
       # ============================================================
       - name: Validar resultado del procesamiento
         run: |
@@ -141,7 +160,7 @@ jobs:
           PY
 
       # ============================================================
-      # 8. PREPARAR Y VALIDAR TODOS LOS MENSAJES
+      # 9. PREPARAR Y VALIDAR TODOS LOS MENSAJES
       # ============================================================
       - name: Preparar mensajes de Telegram
         env:
@@ -433,7 +452,7 @@ jobs:
           PY
 
       # ============================================================
-      # 9. MOSTRAR MANIFIESTO FINAL
+      # 10. MOSTRAR MANIFIESTO FINAL
       # ============================================================
       - name: Mostrar manifiesto de publicación
         run: |
@@ -444,7 +463,7 @@ jobs:
           cat telegram_prepared_manifest.json
 
       # ============================================================
-      # 10. PUBLICAR EN TELEGRAM
+      # 11. PUBLICAR EN TELEGRAM
       # ============================================================
       - name: Publicar en Telegram
         env:
@@ -579,7 +598,7 @@ jobs:
           PY
 
       # ============================================================
-      # 11. GUARDAR RESULTADOS DE LA PRUEBA
+      # 12. GUARDAR RESULTADOS DE LA PRUEBA
       # ============================================================
       - name: Subir resultados de publicación
         if: always()
