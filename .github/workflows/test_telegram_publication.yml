@@ -619,9 +619,20 @@ jobs:
           print(f"Deezer album ID: {album_id}")
           print(f"Pistas: {len(pistas)}\n")
 
-          # Configurar identidad de Git antes del bucle
-          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+          subprocess.run(
+              ["git", "config", "user.name", "github-actions[bot]"],
+              check=True
+          )
+
+          subprocess.run(
+              [
+                  "git",
+                  "config",
+                  "user.email",
+                  "41898282+github-actions[bot]@users.noreply.github.com"
+              ],
+              check=True
+          )
 
           for position, pista in enumerate(pistas, start=1):
               index = pista.get("index")
@@ -683,16 +694,15 @@ jobs:
 
               if publisher.returncode != 0:
                   print(f"\nERROR: Falló la publicación de la pista {index}.")
+
                   if publisher.stderr:
                       print("STDERR:")
                       print(publisher.stderr)
+
                   sys.exit(1)
 
               print(f"✓ Pista {index} procesada correctamente.")
 
-              # ----------------------------------------------------
-              # PERSISTENCIA DURADERA DESPUÉS DE CADA PISTA
-              # ----------------------------------------------------
               print("\n==========================================")
               print("PERSISTIENDO ESTADO EN GITHUB")
               print("==========================================")
