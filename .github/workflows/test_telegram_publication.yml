@@ -8,16 +8,20 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-
       # ============================================================
       # 1. CHECKOUT
       # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ============================================================
       # 2. CONFIGURAR PYTHON
@@ -193,6 +197,7 @@ jobs:
 
           PROCESSING_FILE = Path("processing_result.json")
           STATE_FILE = Path("data/publication_state.json")
+          STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
           with PROCESSING_FILE.open("r", encoding="utf-8") as f:
               data = json.load(f)
@@ -283,8 +288,7 @@ jobs:
           )
 
           print("")
-          print("✓ Las 4 pistas están registradas.")
-          print("✓ Todavía no se ha enviado ningún mensaje.")
+          print("✓ Las pistas están registradas.")
           print("✓ Estado guardado en:")
           print(f"  {STATE_FILE}")
           PY
@@ -615,6 +619,10 @@ jobs:
           print(f"Deezer album ID: {album_id}")
           print(f"Pistas: {len(pistas)}\n")
 
+          # Configurar identidad de Git antes del bucle
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+
           for position, pista in enumerate(pistas, start=1):
               index = pista.get("index")
 
@@ -680,7 +688,74 @@ jobs:
                       print(publisher.stderr)
                   sys.exit(1)
 
-              print(f"✓ Pista {index} procesada correctamente.\n")
+              print(f"✓ Pista {index} procesada correctamente.")
+
+              # ----------------------------------------------------
+              # PERSISTENCIA DURADERA DESPUÉS DE CADA PISTA
+              # ----------------------------------------------------
+              print("\n==========================================")
+              print("PERSISTIENDO ESTADO EN GITHUB")
+              print("==========================================")
+
+              git_add = subprocess.run(
+                  ["git", "add", "data/publication_state.json"],
+                  capture_output=True,
+                  text=True
+              )
+
+              if git_add.returncode != 0:
+                  print(git_add.stderr)
+                  sys.exit(1)
+
+              changes = subprocess.run(
+                  ["git", "diff", "--cached", "--quiet"],
+                  capture_output=True,
+                  text=True
+              )
+
+              if changes.returncode == 0:
+                  print("✓ No hay cambios nuevos en publication_state.json.")
+
+              elif changes.returncode == 1:
+                  commit = subprocess.run(
+                      [
+                          "git",
+                          "commit",
+                          "-m",
+                          f"Persist publication state: track {index}"
+                      ],
+                      capture_output=True,
+                      text=True
+                  )
+
+                  if commit.returncode != 0:
+                      print("ERROR: No se pudo crear el commit.")
+                      print(commit.stdout)
+                      print(commit.stderr)
+                      sys.exit(1)
+
+                  branch = os.environ.get("GITHUB_REF_NAME", "main")
+
+                  push = subprocess.run(
+                      ["git", "push", "origin", f"HEAD:{branch}"],
+                      capture_output=True,
+                      text=True
+                  )
+
+                  if push.returncode != 0:
+                      print("ERROR: No se pudo hacer push del estado.")
+                      print(push.stdout)
+                      print(push.stderr)
+                      sys.exit(1)
+
+                  print("✓ Estado persistido en el repositorio.")
+
+              else:
+                  print("ERROR: git diff --cached falló.")
+                  print(changes.stderr)
+                  sys.exit(1)
+
+              print("")
 
               if position < len(pistas):
                   time.sleep(2)
@@ -693,7 +768,39 @@ jobs:
           PY
 
       # ============================================================
-      # 14. MOSTRAR ESTADO FINAL
+      # 14. PERSISTIR ESTADO SI EL WORKFLOW FALLÓ
+      # ============================================================
+      - name: Persistir estado tras cualquier resultado
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "PERSISTENCIA FINAL DEL ESTADO"
+          echo "=========================================="
+
+          if [ ! -f "data/publication_state.json" ]; then
+            echo "No existe data/publication_state.json."
+            echo "No hay estado que persistir."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/publication_state.json
+
+          if git diff --cached --quiet; then
+            echo "✓ No hay cambios pendientes."
+            exit 0
+          fi
+
+          git commit -m "Persist publication state after workflow"
+
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+          echo "✓ Estado final persistido en el repositorio."
+
+      # ============================================================
+      # 15. MOSTRAR ESTADO FINAL
       # ============================================================
       - name: Mostrar estado final
         if: always()
@@ -709,7 +816,7 @@ jobs:
           fi
 
       # ============================================================
-      # 15. SUBIR RESULTADOS
+      # 16. SUBIR RESULTADOS
       # ============================================================
       - name: Subir resultados de publicación
         if: always()
