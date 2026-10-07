@@ -1,0 +1,413 @@
+name: Test - Telegram Formatter
+
+on:
+  workflow_dispatch:
+    inputs:
+      processing_run_id:
+        description: "Run ID del workflow de procesamiento multi-track"
+        required: true
+        type: string
+
+jobs:
+  test_formatter:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ============================================================
+      # 1. CHECKOUT
+      # ============================================================
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # 2. CONFIGURAR PYTHON
+      # ============================================================
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ============================================================
+      # 3. DESCARGAR RESULTADO DEL PROCESAMIENTO
+      # ============================================================
+      - name: Descargar artefacto del procesamiento
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.processing_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: release-processing-result
+          path: processing_artifacts
+          merge-multiple: true
+
+      # ============================================================
+      # 4. PREPARAR RESULTADO
+      # ============================================================
+      - name: Preparar resultado
+        run: |
+          set -e
+
+          if [ ! -f "processing_artifacts/release_processing_result.json" ]; then
+            echo "ERROR: No se encontró release_processing_result.json"
+            exit 1
+          fi
+
+          cp \
+            processing_artifacts/release_processing_result.json \
+            processing_result.json
+
+          echo "Resultado de procesamiento:"
+          ls -lh processing_result.json
+
+      # ============================================================
+      # 5. EJECUTAR FORMATTER SOBRE LA PRIMERA PISTA
+      # ============================================================
+      - name: Probar formatter - primera pista
+        run: |
+          set -e
+
+          mkdir -p formatter_test
+
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          processing_file = Path("processing_result.json")
+          input_file = Path(
+              "formatter_test/track_input_01.json"
+          )
+          output_file = Path(
+              "formatter_test/telegram_result_01.json"
+          )
+
+          with processing_file.open("r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          pistas = data.get("pistas")
+
+          if not isinstance(pistas, list):
+              print("ERROR: 'pistas' no es una lista.")
+              sys.exit(1)
+
+          if not pistas:
+              print("ERROR: No existen pistas.")
+              sys.exit(1)
+
+          pista = pistas[0]
+
+          titulo = (
+              pista.get("titulo_publicacion")
+              or pista.get("titulo")
+              or "Pista 1"
+          )
+
+          print("==========================================")
+          print("PRUEBA DEL TELEGRAM FORMATTER")
+          print("==========================================")
+          print(f"Pista: {titulo}")
+          print("")
+
+          # ----------------------------------------------------------
+          # Crear exactamente la misma entrada que utiliza el workflow
+          # real de publicación.
+          # ----------------------------------------------------------
+          track_input = {
+              "tipo": data.get("tipo"),
+              "nombre_publicacion": data.get(
+                  "nombre_publicacion"
+              ),
+              "fecha": data.get("fecha"),
+              "portada": data.get("portada"),
+              "deezer_album_id": data.get(
+                  "deezer_album_id"
+              ),
+              "deezer_url": data.get("deezer_url"),
+              "track_index": 1,
+              "total_tracks": len(pistas),
+              "track": pista
+          }
+
+          with input_file.open("w", encoding="utf-8") as f:
+              json.dump(
+                  track_input,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
+
+          print("Archivo de entrada creado:")
+          print(input_file)
+          print("")
+
+          # ----------------------------------------------------------
+          # Ejecutar formatter
+          # ----------------------------------------------------------
+          result = subprocess.run(
+              [
+                  sys.executable,
+                  "telegram_formatter.py",
+                  str(input_file)
+              ],
+              capture_output=True,
+              text=True
+          )
+
+          print("==========================================")
+          print("SALIDA DEL FORMATTER")
+          print("==========================================")
+
+          if result.stdout:
+              print(result.stdout)
+
+          if result.stderr:
+              print("==========================================")
+              print("STDERR")
+              print("==========================================")
+              print(result.stderr)
+
+          if result.returncode != 0:
+              print("")
+              print(
+                  "ERROR: telegram_formatter.py terminó "
+                  "con código distinto de cero."
+              )
+              sys.exit(result.returncode)
+
+          stdout = result.stdout.strip()
+
+          if not stdout:
+              print(
+                  "ERROR: El formatter no produjo salida."
+              )
+              sys.exit(1)
+
+          try:
+              telegram_result = json.loads(stdout)
+          except json.JSONDecodeError as error:
+              print(
+                  "ERROR: La salida del formatter no es "
+                  "JSON válido."
+              )
+              print(error)
+              sys.exit(1)
+
+          with output_file.open("w", encoding="utf-8") as f:
+              json.dump(
+                  telegram_result,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
+
+          # ==========================================================
+          # VALIDACIONES
+          # ==========================================================
+          mensaje_1 = telegram_result.get("mensaje_1")
+          mensaje_2 = telegram_result.get("mensaje_2")
+
+          if not isinstance(mensaje_1, dict):
+              print("ERROR: Falta mensaje_1.")
+              sys.exit(1)
+
+          if not isinstance(mensaje_2, dict):
+              print("ERROR: Falta mensaje_2.")
+              sys.exit(1)
+
+          # ----------------------------------------------------------
+          # Mensaje 1
+          # ----------------------------------------------------------
+          if mensaje_1.get("tipo") != "photo":
+              print(
+                  "ERROR: mensaje_1 no es photo."
+              )
+              sys.exit(1)
+
+          if not mensaje_1.get("photo"):
+              print(
+                  "ERROR: mensaje_1.photo está vacío."
+              )
+              sys.exit(1)
+
+          caption = mensaje_1.get("caption", "")
+
+          if not caption:
+              print(
+                  "ERROR: mensaje_1.caption está vacío."
+              )
+              sys.exit(1)
+
+          # El caption debe contener información real de la pista.
+          if not pista.get("titulo"):
+              print(
+                  "ERROR: La pista original no tiene título."
+              )
+              sys.exit(1)
+
+          if pista["titulo"] not in caption:
+              print(
+                  "ERROR: El título de la pista no aparece "
+                  "en el caption."
+              )
+              print("Título esperado:", pista["titulo"])
+              print("Caption:", caption)
+              sys.exit(1)
+
+          # ----------------------------------------------------------
+          # Mensaje 2
+          # ----------------------------------------------------------
+          if mensaje_2.get("tipo") != "audio":
+              print(
+                  "ERROR: mensaje_2 no es audio."
+              )
+              sys.exit(1)
+
+          audio = mensaje_2.get("audio")
+
+          if not audio:
+              print(
+                  "ERROR: mensaje_2.audio está vacío."
+              )
+              sys.exit(1)
+
+          title = mensaje_2.get("title")
+
+          if not title:
+              print(
+                  "ERROR: mensaje_2.title está vacío."
+              )
+              sys.exit(1)
+
+          performer = mensaje_2.get("performer")
+
+          if not performer:
+              print(
+                  "ERROR: mensaje_2.performer está vacío."
+              )
+              sys.exit(1)
+
+          duracion = mensaje_2.get(
+              "duracion_segundos"
+          )
+
+          if duracion is None:
+              print(
+                  "ERROR: mensaje_2.duracion_segundos "
+                  "está vacío."
+              )
+              sys.exit(1)
+
+          # ----------------------------------------------------------
+          # Botón
+          # ----------------------------------------------------------
+          reply_markup = mensaje_2.get(
+              "reply_markup"
+          )
+
+          if not isinstance(reply_markup, dict):
+              print(
+                  "ERROR: Falta reply_markup."
+              )
+              sys.exit(1)
+
+          keyboard = reply_markup.get(
+              "inline_keyboard"
+          )
+
+          if not isinstance(keyboard, list):
+              print(
+                  "ERROR: inline_keyboard no es una lista."
+              )
+              sys.exit(1)
+
+          if len(keyboard) != 1:
+              print(
+                  "ERROR: Debe existir exactamente "
+                  "una fila de botones."
+              )
+              sys.exit(1)
+
+          if not isinstance(keyboard[0], list):
+              print(
+                  "ERROR: La fila de botones no es válida."
+              )
+              sys.exit(1)
+
+          if len(keyboard[0]) != 1:
+              print(
+                  "ERROR: Debe existir exactamente "
+                  "un botón."
+              )
+              sys.exit(1)
+
+          button = keyboard[0][0]
+
+          if not isinstance(button, dict):
+              print(
+                  "ERROR: El botón no es válido."
+              )
+              sys.exit(1)
+
+          if not button.get("text"):
+              print(
+                  "ERROR: El botón no tiene texto."
+              )
+              sys.exit(1)
+
+          if not button.get("url"):
+              print(
+                  "ERROR: El botón no tiene URL."
+              )
+              sys.exit(1)
+
+          # ==========================================================
+          # RESULTADO
+          # ==========================================================
+          print("")
+          print("==========================================")
+          print("✓ FORMATTER VALIDADO CORRECTAMENTE")
+          print("==========================================")
+          print("")
+          print("Mensaje 1:")
+          print("  ✓ photo")
+          print("  ✓ portada")
+          print("  ✓ caption")
+          print("")
+          print("Mensaje 2:")
+          print("  ✓ audio")
+          print("  ✓ title")
+          print("  ✓ performer")
+          print("  ✓ duración")
+          print("")
+          print("Botón:")
+          print(
+              f"  ✓ {button.get('text')}"
+          )
+          print(
+              f"  ✓ {button.get('url')}"
+          )
+          print("")
+          print("Audio:")
+          print(audio)
+          print("")
+          print("Caption:")
+          print(caption)
+          print("")
+          print(
+              "IMPORTANTE: esta prueba NO envía "
+              "ningún mensaje a Telegram."
+          )
+          PY
+
+      # ============================================================
+      # 6. GUARDAR RESULTADO
+      # ============================================================
+      - name: Subir resultado de la prueba
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-formatter-test-result
+          path: |
+            processing_result.json
+            formatter_test/
+          if-no-files-found: warn
