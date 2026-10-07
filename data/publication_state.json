@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-07T20:02:28.242608+00:00",
+  "updated_at": "2026-10-07T20:02:34.442384+00:00",
   "releases": {
     "917540341": {
       "deezer_album_id": "917540341",
@@ -12,7 +12,7 @@
       "total_pistas": 4,
       "estado": "partial",
       "created_at": "2026-10-07T20:02:24.400856+00:00",
-      "updated_at": "2026-10-07T20:02:28.242573+00:00",
+      "updated_at": "2026-10-07T20:02:34.442347+00:00",
       "pistas": {
         "3839609781": {
           "deezer_track_id": "3839609781",
@@ -24,7 +24,7 @@
           "isrc": "ITF252600081",
           "estado": "completed",
           "created_at": "2026-10-07T20:02:24.400871+00:00",
-          "updated_at": "2026-10-07T20:02:28.242547+00:00",
+          "updated_at": "2026-10-07T20:02:34.442324+00:00",
           "portada": {
             "enviada": true,
             "message_id": 597
@@ -37,21 +37,21 @@
         "3839609791": {
           "deezer_track_id": "3839609791",
           "index": 2,
-          "titulo": "Quizás",
+          "titulo": "Quizás (Prod. by Roberto Ferrante x El Bandolero)",
           "titulo_publicacion": "Quizás (Prod. by Roberto Ferrante x El Bandolero)",
           "artistas": "Bebeshito, Dany Ome, Kevincito El 13, Roberto Ferrante, El Bandolero",
           "duracion_segundos": 142,
           "isrc": "ITF252600082",
-          "estado": "pending",
+          "estado": "completed",
           "created_at": "2026-10-07T20:02:24.400886+00:00",
-          "updated_at": "2026-10-07T20:02:28.242559+00:00",
+          "updated_at": "2026-10-07T20:02:34.442333+00:00",
           "portada": {
-            "enviada": false,
-            "message_id": null
+            "enviada": true,
+            "message_id": 599
           },
           "preview": {
-            "enviada": false,
-            "message_id": null
+            "enviada": true,
+            "message_id": 600
           }
         },
         "3839609801": {
@@ -64,7 +64,7 @@
           "isrc": "ITF252600083",
           "estado": "pending",
           "created_at": "2026-10-07T20:02:24.400894+00:00",
-          "updated_at": "2026-10-07T20:02:28.242564+00:00",
+          "updated_at": "2026-10-07T20:02:34.442337+00:00",
           "portada": {
             "enviada": false,
             "message_id": null
@@ -84,7 +84,7 @@
           "isrc": "ITF252600084",
           "estado": "pending",
           "created_at": "2026-10-07T20:02:24.400900+00:00",
-          "updated_at": "2026-10-07T20:02:28.242566+00:00",
+          "updated_at": "2026-10-07T20:02:34.442339+00:00",
           "portada": {
             "enviada": false,
             "message_id": null
