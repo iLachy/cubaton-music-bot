@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-07T20:02:40.177558+00:00",
+  "updated_at": "2026-10-07T20:02:46.137532+00:00",
   "releases": {
     "917540341": {
       "deezer_album_id": "917540341",
@@ -10,9 +10,9 @@
       "fecha": "13-02-2026",
       "portada": "https://cdn-images.dzcdn.net/images/cover/5a00c1412a939d7e5e953fedcf14f2b1/1000x1000-000000-80-0-0.jpg",
       "total_pistas": 4,
-      "estado": "partial",
+      "estado": "completed",
       "created_at": "2026-10-07T20:02:24.400856+00:00",
-      "updated_at": "2026-10-07T20:02:40.177520+00:00",
+      "updated_at": "2026-10-07T20:02:46.137494+00:00",
       "pistas": {
         "3839609781": {
           "deezer_track_id": "3839609781",
@@ -24,7 +24,7 @@
           "isrc": "ITF252600081",
           "estado": "completed",
           "created_at": "2026-10-07T20:02:24.400871+00:00",
-          "updated_at": "2026-10-07T20:02:40.177497+00:00",
+          "updated_at": "2026-10-07T20:02:46.137476+00:00",
           "portada": {
             "enviada": true,
             "message_id": 597
@@ -44,7 +44,7 @@
           "isrc": "ITF252600082",
           "estado": "completed",
           "created_at": "2026-10-07T20:02:24.400886+00:00",
-          "updated_at": "2026-10-07T20:02:40.177506+00:00",
+          "updated_at": "2026-10-07T20:02:46.137485+00:00",
           "portada": {
             "enviada": true,
             "message_id": 599
@@ -64,7 +64,7 @@
           "isrc": "ITF252600083",
           "estado": "completed",
           "created_at": "2026-10-07T20:02:24.400894+00:00",
-          "updated_at": "2026-10-07T20:02:40.177509+00:00",
+          "updated_at": "2026-10-07T20:02:46.137488+00:00",
           "portada": {
             "enviada": true,
             "message_id": 601
@@ -77,21 +77,21 @@
         "3839609811": {
           "deezer_track_id": "3839609811",
           "index": 4,
-          "titulo": "Se Va",
+          "titulo": "Se Va (Prod. by Dj Honda)",
           "titulo_publicacion": "Se Va (Prod. by Dj Honda)",
           "artistas": "Bebeshito, Dany Ome, Kevincito El 13",
           "duracion_segundos": 198,
           "isrc": "ITF252600084",
-          "estado": "pending",
+          "estado": "completed",
           "created_at": "2026-10-07T20:02:24.400900+00:00",
-          "updated_at": "2026-10-07T20:02:40.177512+00:00",
+          "updated_at": "2026-10-07T20:02:46.137490+00:00",
           "portada": {
-            "enviada": false,
-            "message_id": null
+            "enviada": true,
+            "message_id": 603
           },
           "preview": {
-            "enviada": false,
-            "message_id": null
+            "enviada": true,
+            "message_id": 604
           }
         }
       }
