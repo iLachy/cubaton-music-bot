@@ -1,0 +1,884 @@
+name: Test Telegram Publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      processing_run_id:
+        description: "Run ID del workflow de procesamiento multi-track"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+
+      # ============================================================
+      # 1. Descargar el repositorio
+      # ============================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ============================================================
+      # 2. Configurar Python
+      # ============================================================
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # ============================================================
+      # 3. Instalar dependencias
+      # ============================================================
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+
+      # ============================================================
+      # 4. Descargar artifacts del procesamiento
+      #
+      # No dependemos del nombre exacto del artifact.
+      # Descargamos todos los artifacts del run indicado.
+      # ============================================================
+
+      - name: Download processing artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.processing_run_id }}
+          path: processing_artifacts
+
+
+      # ============================================================
+      # 5. Localizar resultado del procesamiento
+      #
+      # Aceptamos cualquiera de estos nombres:
+      #
+      #   release_processing_result.json
+      #   publication_results.json
+      #
+      # Esto evita acoplar este workflow a un nombre concreto
+      # del archivo generado por la prueba anterior.
+      # ============================================================
+
+      - name: Locate processing result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo "ARTIFACTS DESCARGADOS"
+          echo "========================================"
+
+          find processing_artifacts -type f -print
+
+          RESULT_FILE=""
+
+          if find processing_artifacts -type f \
+              -name "release_processing_result.json" \
+              -print -quit | grep -q .; then
+
+            RESULT_FILE="$(find processing_artifacts -type f \
+              -name "release_processing_result.json" \
+              -print -quit)"
+
+          elif find processing_artifacts -type f \
+              -name "publication_results.json" \
+              -print -quit | grep -q .; then
+
+            RESULT_FILE="$(find processing_artifacts -type f \
+              -name "publication_results.json" \
+              -print -quit)"
+
+          fi
+
+          if [ -z "$RESULT_FILE" ]; then
+            echo ""
+            echo "ERROR: No se encontró el resultado del procesamiento."
+            echo ""
+            echo "Se esperaba:"
+            echo "  release_processing_result.json"
+            echo "  o"
+            echo "  publication_results.json"
+            exit 1
+          fi
+
+          echo ""
+          echo "Resultado encontrado:"
+          echo "$RESULT_FILE"
+
+          cp "$RESULT_FILE" processing_result.json
+
+          echo ""
+          echo "Archivo preparado:"
+          ls -lh processing_result.json
+
+
+      # ============================================================
+      # 6. Preparar TODAS las publicaciones
+      #
+      # IMPORTANTE:
+      # Aquí todavía NO se envía nada a Telegram.
+      #
+      # Primero:
+      #   - se procesa cada pista
+      #   - se genera telegram_result_N.json
+      #   - se valida
+      #
+      # Solo si las 4 pistas están correctamente preparadas
+      # se pasa a la fase de publicación.
+      # ============================================================
+
+      - name: Prepare and validate all Telegram publications
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+
+          PROCESSING_FILE = Path("processing_result.json")
+          OUTPUT_DIR = Path("telegram_prepared")
+
+          OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+          # --------------------------------------------------------
+          # Utilidades
+          # --------------------------------------------------------
+
+          def fail(message):
+              print("")
+              print("ERROR:", message)
+              sys.exit(1)
+
+
+          def run_json_command(command, output_file):
+              print("")
+              print("Ejecutando:")
+              print(" ".join(command))
+
+              result = subprocess.run(
+                  command,
+                  capture_output=True,
+                  text=True
+              )
+
+              if result.stdout:
+                  print(result.stdout)
+
+              if result.returncode != 0:
+                  if result.stderr:
+                      print(result.stderr)
+
+                  fail(
+                      f"El comando falló con código "
+                      f"{result.returncode}: {' '.join(command)}"
+                  )
+
+              stdout = result.stdout.strip()
+
+              if not stdout:
+                  fail(
+                      f"El comando no produjo JSON: "
+                      f"{' '.join(command)}"
+                  )
+
+              try:
+                  data = json.loads(stdout)
+              except json.JSONDecodeError as exc:
+                  print("STDOUT recibido:")
+                  print(stdout)
+
+                  if result.stderr:
+                      print("STDERR:")
+                      print(result.stderr)
+
+                  fail(
+                      f"No se pudo interpretar la salida como JSON: {exc}"
+                  )
+
+              output_file.write_text(
+                  json.dumps(data, ensure_ascii=False, indent=2),
+                  encoding="utf-8"
+              )
+
+              return data
+
+
+          def validate_telegram_result(data, track_name):
+              if not isinstance(data, dict):
+                  fail(
+                      f"{track_name}: telegram_result no es un objeto JSON."
+                  )
+
+              messages = data.get("messages")
+
+              if not isinstance(messages, list):
+                  fail(
+                      f"{track_name}: telegram_result no contiene "
+                      f"'messages' como lista."
+                  )
+
+              if len(messages) != 2:
+                  fail(
+                      f"{track_name}: se esperaban exactamente 2 "
+                      f"mensajes, pero se encontraron {len(messages)}."
+                  )
+
+              # ----------------------------------------------------
+              # Mensaje 1
+              # ----------------------------------------------------
+
+              message_1 = messages[0]
+
+              if message_1.get("type") != "photo":
+                  fail(
+                      f"{track_name}: mensaje 1 no es de tipo photo."
+                  )
+
+              if not message_1.get("photo"):
+                  fail(
+                      f"{track_name}: mensaje 1 no contiene photo."
+                  )
+
+              if not message_1.get("caption"):
+                  fail(
+                      f"{track_name}: mensaje 1 no contiene caption."
+                  )
+
+              if message_1.get("parse_mode") != "HTML":
+                  fail(
+                      f"{track_name}: mensaje 1 no utiliza HTML."
+                  )
+
+              # ----------------------------------------------------
+              # Mensaje 2
+              # ----------------------------------------------------
+
+              message_2 = messages[1]
+
+              if message_2.get("type") != "audio":
+                  fail(
+                      f"{track_name}: mensaje 2 no es de tipo audio."
+                  )
+
+              if not message_2.get("audio"):
+                  fail(
+                      f"{track_name}: mensaje 2 no contiene audio."
+                  )
+
+              reply_markup = message_2.get("reply_markup")
+
+              if not isinstance(reply_markup, dict):
+                  fail(
+                      f"{track_name}: mensaje 2 no contiene "
+                      f"reply_markup."
+                  )
+
+              keyboard = reply_markup.get("inline_keyboard")
+
+              if not isinstance(keyboard, list):
+                  fail(
+                      f"{track_name}: inline_keyboard inválido."
+                  )
+
+              if len(keyboard) != 1:
+                  fail(
+                      f"{track_name}: se esperaba exactamente "
+                      f"1 fila de botones."
+                  )
+
+              if len(keyboard[0]) != 1:
+                  fail(
+                      f"{track_name}: se esperaba exactamente "
+                      f"1 botón."
+                  )
+
+              button = keyboard[0][0]
+
+              if not button.get("text"):
+                  fail(
+                      f"{track_name}: el botón no tiene texto."
+                  )
+
+              if not button.get("url"):
+                  fail(
+                      f"{track_name}: el botón no tiene URL."
+                  )
+
+              return True
+
+
+          # --------------------------------------------------------
+          # Cargar resultado
+          # --------------------------------------------------------
+
+          if not PROCESSING_FILE.exists():
+              fail(
+                  "No existe processing_result.json."
+              )
+
+          with PROCESSING_FILE.open(
+              "r",
+              encoding="utf-8"
+          ) as f:
+              release = json.load(f)
+
+
+          if not isinstance(release, dict):
+              fail(
+                  "El resultado del procesamiento no es un objeto JSON."
+              )
+
+
+          tracks = release.get("pistas")
+
+          if not isinstance(tracks, list):
+              fail(
+                  "El resultado no contiene la lista 'pistas'."
+              )
+
+          if not tracks:
+              fail(
+                  "El resultado contiene 0 pistas."
+              )
+
+
+          total = len(tracks)
+
+
+          print("")
+          print("========================================")
+          print("PREPARACIÓN DE PUBLICACIONES TELEGRAM")
+          print("========================================")
+          print("")
+          print(f"Publicación: {release.get('nombre_publicacion', '')}")
+          print(f"Pistas: {total}")
+          print("")
+          print("IMPORTANTE:")
+          print("TODAVÍA NO se ha enviado ningún mensaje a Telegram.")
+          print("")
+
+
+          prepared = []
+
+
+          # ========================================================
+          # Preparar TODAS las pistas
+          # ========================================================
+
+          for index, track in enumerate(tracks, start=1):
+
+              title = (
+                  track.get("titulo_publicacion")
+                  or track.get("titulo")
+                  or ""
+              )
+
+              if not title:
+                  fail(
+                      f"Pista {index}: no tiene título."
+                  )
+
+              print("")
+              print("========================================")
+              print(
+                  f"[{index:02d}/{total:02d}] {title}"
+              )
+              print("========================================")
+
+
+              # ----------------------------------------------------
+              # Verificaciones mínimas antes del formatter
+              # ----------------------------------------------------
+
+              required_fields = [
+                  "artistas",
+                  "duracion",
+                  "fecha",
+                  "portada",
+              ]
+
+              missing = [
+                  field
+                  for field in required_fields
+                  if not track.get(field)
+              ]
+
+              if missing:
+                  fail(
+                      f"{title}: faltan campos requeridos: "
+                      f"{', '.join(missing)}"
+                  )
+
+
+              preview = track.get("preview")
+
+              if not isinstance(preview, dict):
+                  fail(
+                      f"{title}: preview inválido."
+                  )
+
+              preview_url = preview.get("url")
+
+              if not preview_url:
+                  fail(
+                      f"{title}: no existe URL de preview."
+                  )
+
+
+              escuchar = track.get("escuchar")
+
+              if not isinstance(escuchar, dict):
+                  fail(
+                      f"{title}: escuchar inválido."
+                  )
+
+              escuchar_url = escuchar.get("url")
+
+              if not escuchar_url:
+                  fail(
+                      f"{title}: no existe URL para escuchar."
+                  )
+
+
+              # ----------------------------------------------------
+              # publication_result.json
+              #
+              # El formatter actual trabaja con una pista.
+              # Por eso creamos un publication_result independiente
+              # para cada pista.
+              # ----------------------------------------------------
+
+              publication = {
+                  "ok": True,
+
+                  "tipo": release.get("tipo"),
+
+                  "deezer_album_id": (
+                      track.get("deezer_album_id")
+                      or release.get("deezer_album_id")
+                  ),
+
+                  "nombre_publicacion": (
+                      track.get("nombre_publicacion")
+                      or release.get("nombre_publicacion")
+                  ),
+
+                  "fecha": track.get("fecha"),
+
+                  "portada": track.get("portada"),
+
+                  "deezer_url": track.get("deezer_url"),
+
+                  "deezer_track_id": track.get("deezer_track_id"),
+
+                  "titulo": track.get("titulo"),
+
+                  "titulo_publicacion": (
+                      track.get("titulo_publicacion")
+                      or track.get("titulo")
+                  ),
+
+                  "artistas": track.get("artistas"),
+
+                  "artistas_lista": track.get("artistas_lista"),
+
+                  "duracion": track.get("duracion"),
+
+                  "duracion_segundos": (
+                      track.get("duracion_segundos")
+                  ),
+
+                  "isrc": track.get("isrc"),
+
+                  "preview": preview,
+
+                  "escuchar": escuchar,
+
+                  "youtube_music": (
+                      track.get("youtube_music")
+                  ),
+
+                  "apple_music": (
+                      track.get("apple_music")
+                  ),
+              }
+
+
+              publication_file = (
+                  OUTPUT_DIR /
+                  f"{index:02d}_publication_result.json"
+              )
+
+              publication_file.write_text(
+                  json.dumps(
+                      publication,
+                      ensure_ascii=False,
+                      indent=2
+                  ),
+                  encoding="utf-8"
+              )
+
+
+              # ----------------------------------------------------
+              # Formatter
+              # ----------------------------------------------------
+
+              print("")
+              print("Generando mensajes Telegram...")
+
+              telegram_file = (
+                  OUTPUT_DIR /
+                  f"{index:02d}_telegram_result.json"
+              )
+
+              formatter = subprocess.run(
+                  [
+                      sys.executable,
+                      "telegram_formatter.py",
+                      str(publication_file)
+                  ],
+                  capture_output=True,
+                  text=True
+              )
+
+
+              if formatter.returncode != 0:
+
+                  if formatter.stdout:
+                      print(formatter.stdout)
+
+                  if formatter.stderr:
+                      print(formatter.stderr)
+
+                  fail(
+                      f"{title}: telegram_formatter.py falló."
+                  )
+
+
+              formatter_stdout = formatter.stdout.strip()
+
+              if not formatter_stdout:
+                  fail(
+                      f"{title}: telegram_formatter.py "
+                      f"no produjo resultado."
+                  )
+
+
+              try:
+                  telegram_data = json.loads(formatter_stdout)
+              except json.JSONDecodeError as exc:
+
+                  print("Salida del formatter:")
+                  print(formatter_stdout)
+
+                  if formatter.stderr:
+                      print("Errores:")
+                      print(formatter.stderr)
+
+                  fail(
+                      f"{title}: salida inválida del formatter: {exc}"
+                  )
+
+
+              telegram_file.write_text(
+                  json.dumps(
+                      telegram_data,
+                      ensure_ascii=False,
+                      indent=2
+                  ),
+                  encoding="utf-8"
+              )
+
+
+              # ----------------------------------------------------
+              # Validación completa
+              # ----------------------------------------------------
+
+              validate_telegram_result(
+                  telegram_data,
+                  title
+              )
+
+
+              prepared.append({
+                  "orden": index,
+                  "titulo": title,
+                  "publication_file": str(publication_file),
+                  "telegram_file": str(telegram_file),
+              })
+
+
+              print("")
+              print("✓ PUBLICACIÓN PREPARADA CORRECTAMENTE")
+
+
+          # ========================================================
+          # Todas las pistas preparadas
+          # ========================================================
+
+          manifest = {
+              "ok": True,
+              "publicacion": release.get("nombre_publicacion"),
+              "tipo": release.get("tipo"),
+              "deezer_album_id": release.get("deezer_album_id"),
+              "total_pistas": total,
+              "publicaciones": prepared,
+          }
+
+
+          manifest_file = Path(
+              "telegram_prepared_manifest.json"
+          )
+
+          manifest_file.write_text(
+              json.dumps(
+                  manifest,
+                  ensure_ascii=False,
+                  indent=2
+              ),
+              encoding="utf-8"
+          )
+
+
+          print("")
+          print("========================================")
+          print("✓ TODAS LAS PUBLICACIONES PREPARADAS")
+          print("========================================")
+          print("")
+          print(f"Pistas preparadas: {total}/{total}")
+          print(f"Mensajes preparados: {total * 2}")
+          print("")
+          print("Ningún mensaje ha sido enviado todavía.")
+          print("")
+          PY
+
+
+      # ============================================================
+      # 7. Mostrar resumen antes de publicar
+      # ============================================================
+
+      - name: Show publication plan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python <<'PY'
+          import json
+
+          with open(
+              "telegram_prepared_manifest.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              manifest = json.load(f)
+
+          print("")
+          print("========================================")
+          print("PLAN DE PUBLICACIÓN")
+          print("========================================")
+          print("")
+
+          for item in manifest["publicaciones"]:
+              print(
+                  f'[{item["orden"]:02d}/{manifest["total_pistas"]:02d}] '
+                  f'{item["titulo"]}'
+              )
+              print("  ├─ mensaje 1: portada + caption")
+              print("  └─ mensaje 2: audio + botón")
+              print("")
+
+          print(
+              f'TOTAL: {manifest["total_pistas"] * 2} mensajes'
+          )
+
+          print("")
+          print("========================================")
+          print("✓ VALIDACIÓN COMPLETA")
+          print("========================================")
+          print("")
+          print("Todas las pistas están preparadas.")
+          print("Comenzando publicación en Telegram...")
+          print("")
+          PY
+
+
+      # ============================================================
+      # 8. Publicar secuencialmente
+      #
+      # IMPORTANTE:
+      # Esta es la PRIMERA parte del workflow que realmente toca
+      # Telegram.
+      #
+      # El orden es:
+      #
+      #   pista 1 -> 2 mensajes
+      #   pista 2 -> 2 mensajes
+      #   pista 3 -> 2 mensajes
+      #   pista 4 -> 2 mensajes
+      #
+      # Si publisher falla, el workflow se detiene inmediatamente.
+      # ============================================================
+
+      - name: Publish all tracks to Telegram
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import time
+
+
+          with open(
+              "telegram_prepared_manifest.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              manifest = json.load(f)
+
+
+          publications = manifest["publicaciones"]
+          total = len(publications)
+
+
+          if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+              print("ERROR: TELEGRAM_BOT_TOKEN no está configurado.")
+              sys.exit(1)
+
+
+          if not os.environ.get("TELEGRAM_CHAT_ID"):
+              print("ERROR: TELEGRAM_CHAT_ID no está configurado.")
+              sys.exit(1)
+
+
+          print("")
+          print("========================================")
+          print("PUBLICACIÓN EN TELEGRAM")
+          print("========================================")
+          print("")
+
+
+          for index, item in enumerate(publications, start=1):
+
+              title = item["titulo"]
+              telegram_file = item["telegram_file"]
+
+
+              print("")
+              print("----------------------------------------")
+              print(
+                  f"[{index:02d}/{total:02d}] PUBLICANDO: {title}"
+              )
+              print("----------------------------------------")
+
+
+              result = subprocess.run(
+                  [
+                      sys.executable,
+                      "telegram_publisher.py",
+                      telegram_file
+                  ],
+                  capture_output=True,
+                  text=True,
+                  env=os.environ.copy()
+              )
+
+
+              if result.stdout:
+                  print(result.stdout)
+
+
+              if result.returncode != 0:
+
+                  if result.stderr:
+                      print(result.stderr)
+
+                  print("")
+                  print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                  print("ERROR DE PUBLICACIÓN")
+                  print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                  print("")
+                  print(
+                      f"La publicación falló en la pista "
+                      f"{index}/{total}: {title}"
+                  )
+                  print("")
+                  print(
+                      "Las pistas anteriores pudieron haber sido "
+                      "publicadas correctamente."
+                  )
+                  print(
+                      "Esta ejecución se detiene para evitar continuar "
+                      "sin control."
+                  )
+
+                  sys.exit(result.returncode)
+
+
+              print("")
+              print("✓ PISTA PUBLICADA CORRECTAMENTE")
+
+
+              # Pequeña pausa entre pistas para no realizar las
+              # publicaciones completamente pegadas.
+              if index < total:
+                  time.sleep(2)
+
+
+          print("")
+          print("========================================")
+          print("✓ PUBLICACIÓN COMPLETADA")
+          print("========================================")
+          print("")
+          print(f"Pistas publicadas: {total}/{total}")
+          print(f"Mensajes enviados: {total * 2}")
+          print("")
+          print("Orden utilizado:")
+
+          for index, item in enumerate(publications, start=1):
+              print(
+                  f"  {index:02d}. {item['titulo']}"
+              )
+
+          print("")
+          PY
+
+
+      # ============================================================
+      # 9. Guardar resultados de la prueba
+      # ============================================================
+
+      - name: Upload publication test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-publication-test-results
+          path: |
+            processing_result.json
+            telegram_prepared_manifest.json
+            telegram_prepared/
+          if-no-files-found: warn
