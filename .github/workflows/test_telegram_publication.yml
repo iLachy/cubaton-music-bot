@@ -10,10 +10,12 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+
     steps:
       # ============================================================
       # 1. CHECKOUT
@@ -36,19 +38,61 @@ jobs:
       # ============================================================
       - name: Instalar FFmpeg
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          set -e
 
           echo "=========================================="
-          echo "FFmpeg"
+          echo "CONFIGURANDO REPOSITORIOS APT"
           echo "=========================================="
+
+          echo "Repositorios Ubuntu antes del ajuste:"
+          grep -R "azure.archive.ubuntu.com" /etc/apt 2>/dev/null || true
+
+          echo ""
+          echo "Reemplazando azure.archive.ubuntu.com por archive.ubuntu.com..."
+
+          sudo sed -i \
+            's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+            /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list \
+            /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+
+          echo ""
+          echo "Repositorios Ubuntu después del ajuste:"
+          grep -R "archive.ubuntu.com" /etc/apt 2>/dev/null || true
+
+          echo ""
+          echo "=========================================="
+          echo "ACTUALIZANDO ÍNDICES APT"
+          echo "=========================================="
+
+          sudo apt-get update
+
+          echo ""
+          echo "=========================================="
+          echo "INSTALANDO FFMPEG"
+          echo "=========================================="
+
+          sudo apt-get install -y ffmpeg
+
+          echo ""
+          echo "=========================================="
+          echo "VERIFICANDO FFMPEG"
+          echo "=========================================="
+
+          command -v ffmpeg
           ffmpeg -version | head -n 1
 
           echo ""
           echo "=========================================="
-          echo "FFprobe"
+          echo "VERIFICANDO FFPROBE"
           echo "=========================================="
+
+          command -v ffprobe
           ffprobe -version | head -n 1
+
+          echo ""
+          echo "✓ FFmpeg instalado correctamente"
+          echo "✓ FFprobe instalado correctamente"
 
       # ============================================================
       # 4. INSTALAR DEPENDENCIAS
