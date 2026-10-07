@@ -8,22 +8,16 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
-  actions: read
-
 jobs:
   publish:
     runs-on: ubuntu-latest
-
     steps:
+
       # ============================================================
-      # 1. CHECKOUT DEL REPOSITORIO
+      # 1. CHECKOUT
       # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       # ============================================================
       # 2. CONFIGURAR PYTHON
@@ -73,7 +67,7 @@ jobs:
           merge-multiple: true
 
       # ============================================================
-      # 6. MOSTRAR CONTENIDO DEL ARTEFACTO
+      # 6. INSPECCIONAR ARTEFACTOS
       # ============================================================
       - name: Inspeccionar artefactos descargados
         run: |
@@ -101,7 +95,7 @@ jobs:
           cat processing_artifacts/release_processing_result.json
 
       # ============================================================
-      # 7. COPIAR RESULTADO PRINCIPAL
+      # 7. PREPARAR RESULTADO DE PROCESAMIENTO
       # ============================================================
       - name: Preparar resultado de procesamiento
         run: |
@@ -113,7 +107,7 @@ jobs:
           ls -lh processing_result.json
 
       # ============================================================
-      # 8. VALIDAR ESTRUCTURA GENERAL
+      # 8. VALIDAR RESULTADO GENERAL
       # ============================================================
       - name: Validar resultado del procesamiento
         run: |
@@ -126,6 +120,10 @@ jobs:
           with open(path, "r", encoding="utf-8") as f:
               data = json.load(f)
 
+          print("==========================================")
+          print("VALIDACIÓN DEL RESULTADO")
+          print("==========================================")
+          print("")
           print("Tipo:", data.get("tipo"))
           print("Nombre publicación:", data.get("nombre_publicacion"))
           print("Fecha:", data.get("fecha"))
@@ -165,28 +163,18 @@ jobs:
 
           album_id = data.get("deezer_album_id")
 
-          if not album_id:
+          if album_id is None:
               print("ERROR: Falta deezer_album_id.")
               sys.exit(1)
 
-          for index, pista in enumerate(pistas, start=1):
-              track_id = pista.get("deezer_track_id")
-
-              if not track_id:
-                  print(
-                      f"ERROR: La pista {index} "
-                      "no tiene deezer_track_id."
-                  )
-                  sys.exit(1)
-
           print("")
-          print("✓ Estructura general válida")
+          print("✓ Resultado general válido")
           print(f"✓ {len(pistas)} pistas encontradas")
           print(f"✓ Deezer album ID: {album_id}")
           PY
 
       # ============================================================
-      # 9. INICIALIZAR / RECUPERAR ESTADO DE PUBLICACIÓN
+      # 9. INICIALIZAR ESTADO DE PUBLICACIÓN
       # ============================================================
       - name: Inicializar estado de publicación
         run: |
@@ -196,21 +184,30 @@ jobs:
 
           from publication_state import (
               cargar_estado,
-              crear_o_actualizar_release,
               crear_o_actualizar_pista,
+              crear_o_actualizar_release,
               guardar_estado,
               resumen_release,
+              validar_estado,
           )
 
           PROCESSING_FILE = Path("processing_result.json")
           STATE_FILE = Path("data/publication_state.json")
-          STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
           with PROCESSING_FILE.open("r", encoding="utf-8") as f:
               data = json.load(f)
 
           album_id = data["deezer_album_id"]
           pistas = data["pistas"]
+
+          print("==========================================")
+          print("INICIALIZANDO ESTADO DE PUBLICACIÓN")
+          print("==========================================")
+          print("")
+          print("Release:", data.get("nombre_publicacion"))
+          print("Deezer album ID:", album_id)
+          print("Total de pistas:", len(pistas))
+          print("")
 
           estado = cargar_estado(STATE_FILE)
 
@@ -222,59 +219,60 @@ jobs:
               nombre_publicacion=data.get("nombre_publicacion"),
               fecha=data.get("fecha"),
               portada=data.get("portada"),
-              total_pistas=len(pistas),
+              total_pistas=len(pistas)
           )
 
-          print("==========================================")
-          print("INICIALIZANDO ESTADO DE PUBLICACIÓN")
-          print("==========================================")
-          print(f"Release: {data.get('nombre_publicacion')}")
-          print(f"Deezer album ID: {album_id}")
-          print(f"Total de pistas: {len(pistas)}")
-          print("")
-
           for index, pista in enumerate(pistas, start=1):
+              track_id = pista.get("deezer_track_id")
 
-              track_id = pista["deezer_track_id"]
+              if track_id is None:
+                  raise RuntimeError(
+                      f"La pista {index} no tiene deezer_track_id."
+                  )
 
               titulo = (
+                  pista.get("titulo")
+                  or pista.get("titulo_publicacion")
+                  or f"Pista {index}"
+              )
+
+              titulo_publicacion = (
                   pista.get("titulo_publicacion")
                   or pista.get("titulo")
                   or f"Pista {index}"
               )
 
+              artistas = pista.get("artistas")
+              duracion = (
+                  pista.get("duracion_segundos")
+                  or pista.get("duration")
+              )
+              isrc = pista.get("isrc")
+
               crear_o_actualizar_pista(
                   release,
                   deezer_track_id=track_id,
                   index=index,
-                  titulo=pista.get("titulo"),
-                  titulo_publicacion=pista.get(
-                      "titulo_publicacion"
-                  ),
-                  artistas=pista.get("artistas"),
-                  duracion_segundos=pista.get(
-                      "duracion_segundos",
-                      pista.get("duration")
-                  ),
-                  isrc=pista.get("isrc"),
+                  titulo=titulo,
+                  titulo_publicacion=titulo_publicacion,
+                  artistas=artistas,
+                  duracion_segundos=duracion,
+                  isrc=isrc
               )
 
               print(
                   f"  [{index:02d}/{len(pistas):02d}] "
-                  f"{titulo} "
+                  f"{titulo_publicacion} "
                   f"(track ID {track_id})"
               )
 
           guardar_estado(estado, STATE_FILE)
-
-          resumen = resumen_release(
-              estado,
-              album_id
-          )
+          validar_estado(estado)
+          resumen = resumen_release(release)
 
           print("")
           print("==========================================")
-          print("ESTADO ACTUAL")
+          print("ESTADO INICIALIZADO")
           print("==========================================")
           print(
               json.dumps(
@@ -285,8 +283,10 @@ jobs:
           )
 
           print("")
-          print("✓ Todas las pistas están registradas.")
-          print("✓ El progreso anterior, si existía, fue conservado.")
+          print("✓ Las 4 pistas están registradas.")
+          print("✓ Todavía no se ha enviado ningún mensaje.")
+          print("✓ Estado guardado en:")
+          print(f"  {STATE_FILE}")
           PY
 
       # ============================================================
@@ -295,27 +295,23 @@ jobs:
       - name: Mostrar estado antes de publicar
         run: |
           echo "=========================================="
-          echo "PUBLICATION STATE"
+          echo "PUBLICATION STATE - ANTES"
           echo "=========================================="
 
-          if [ -f "data/publication_state.json" ]; then
-            cat data/publication_state.json
-          else
+          if [ ! -f "data/publication_state.json" ]; then
             echo "ERROR: No existe data/publication_state.json"
             exit 1
           fi
+
+          cat data/publication_state.json
 
       # ============================================================
       # 11. PREPARAR Y VALIDAR TODOS LOS MENSAJES
       # ============================================================
       - name: Preparar mensajes de Telegram
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
           import json
-          import os
           import subprocess
           import sys
           from pathlib import Path
@@ -329,14 +325,6 @@ jobs:
               data = json.load(f)
 
           pistas = data["pistas"]
-
-          if not os.environ.get("TELEGRAM_BOT_TOKEN"):
-              print("ERROR: Falta TELEGRAM_BOT_TOKEN.")
-              sys.exit(1)
-
-          if not os.environ.get("TELEGRAM_CHAT_ID"):
-              print("ERROR: Falta TELEGRAM_CHAT_ID.")
-              sys.exit(1)
 
           prepared_manifest = {
               "ok": False,
@@ -353,13 +341,14 @@ jobs:
           print("==========================================")
           print("PREPARANDO PUBLICACIÓN")
           print("==========================================")
-          print(f"Publicación: {data.get('nombre_publicacion')}")
+          print(
+              f"Publicación: {data.get('nombre_publicacion')}"
+          )
           print(f"Fecha: {data.get('fecha')}")
           print(f"Pistas: {len(pistas)}")
           print("")
 
           for index, pista in enumerate(pistas, start=1):
-
               numero = f"{index:02d}"
 
               titulo = (
@@ -368,7 +357,9 @@ jobs:
                   or f"Pista {index}"
               )
 
-              print(f"[{numero}/{len(pistas):02d}] {titulo}")
+              print(
+                  f"[{numero}/{len(pistas):02d}] {titulo}"
+              )
 
               track_input = (
                   OUTPUT_DIR /
@@ -379,13 +370,13 @@ jobs:
                   json.dump(
                       {
                           "tipo": data.get("tipo"),
-                          "nombre_publicacion": data.get(
-                              "nombre_publicacion"
+                          "nombre_publicacion": (
+                              data.get("nombre_publicacion")
                           ),
                           "fecha": data.get("fecha"),
                           "portada": data.get("portada"),
-                          "deezer_album_id": data.get(
-                              "deezer_album_id"
+                          "deezer_album_id": (
+                              data.get("deezer_album_id")
                           ),
                           "deezer_url": data.get("deezer_url"),
                           "track_index": index,
@@ -422,19 +413,13 @@ jobs:
               stdout = formatter.stdout.strip()
 
               if not stdout:
-                  print(
-                      "ERROR: telegram_formatter.py "
-                      "no produjo salida."
-                  )
+                  print("ERROR: telegram_formatter.py no produjo salida.")
                   sys.exit(1)
 
               try:
                   telegram_result = json.loads(stdout)
               except json.JSONDecodeError:
-                  print(
-                      "ERROR: La salida del formatter "
-                      "no es JSON válido."
-                  )
+                  print("ERROR: La salida del formatter no es JSON válido.")
                   print("")
                   print("STDOUT:")
                   print(stdout)
@@ -451,9 +436,6 @@ jobs:
                       indent=2
                   )
 
-              # ======================================================
-              # VALIDACIÓN MENSAJE 1
-              # ======================================================
               mensaje_1 = telegram_result.get("mensaje_1")
 
               if not isinstance(mensaje_1, dict):
@@ -462,26 +444,19 @@ jobs:
 
               if mensaje_1.get("tipo") != "photo":
                   print(
-                      "ERROR: mensaje_1 debe ser de tipo 'photo'. "
+                      "ERROR: mensaje_1 debe ser 'photo'. "
                       f"Recibido: {mensaje_1.get('tipo')}"
                   )
                   sys.exit(1)
 
               if not mensaje_1.get("photo"):
-                  print(
-                      "ERROR: mensaje_1 no contiene 'photo'."
-                  )
+                  print("ERROR: mensaje_1 no contiene 'photo'.")
                   sys.exit(1)
 
               if not mensaje_1.get("caption"):
-                  print(
-                      "ERROR: mensaje_1 no contiene 'caption'."
-                  )
+                  print("ERROR: mensaje_1 no contiene 'caption'.")
                   sys.exit(1)
 
-              # ======================================================
-              # VALIDACIÓN MENSAJE 2
-              # ======================================================
               mensaje_2 = telegram_result.get("mensaje_2")
 
               if not isinstance(mensaje_2, dict):
@@ -490,50 +465,38 @@ jobs:
 
               if mensaje_2.get("tipo") != "audio":
                   print(
-                      "ERROR: mensaje_2 debe ser de tipo 'audio'. "
+                      "ERROR: mensaje_2 debe ser 'audio'. "
                       f"Recibido: {mensaje_2.get('tipo')}"
                   )
                   sys.exit(1)
 
               if not mensaje_2.get("audio"):
-                  print(
-                      "ERROR: mensaje_2 no contiene 'audio'."
-                  )
+                  print("ERROR: mensaje_2 no contiene 'audio'.")
                   sys.exit(1)
 
-              # ======================================================
-              # VALIDACIÓN DEL BOTÓN
-              # ======================================================
               reply_markup = mensaje_2.get("reply_markup")
 
               if not isinstance(reply_markup, dict):
-                  print(
-                      "ERROR: mensaje_2 no contiene reply_markup."
-                  )
+                  print("ERROR: mensaje_2 no contiene reply_markup.")
                   sys.exit(1)
 
               keyboard = reply_markup.get("inline_keyboard")
 
               if not isinstance(keyboard, list):
-                  print(
-                      "ERROR: inline_keyboard no es una lista."
-                  )
+                  print("ERROR: inline_keyboard no es una lista.")
                   sys.exit(1)
 
               if len(keyboard) != 1:
                   print(
-                      "ERROR: Debe existir exactamente una fila "
-                      f"de botones. Filas encontradas: {len(keyboard)}"
+                      "ERROR: Debe existir exactamente una fila de botones. "
+                      f"Filas encontradas: {len(keyboard)}"
                   )
                   sys.exit(1)
 
               row = keyboard[0]
 
               if not isinstance(row, list):
-                  print(
-                      "ERROR: La fila de botones "
-                      "no es una lista."
-                  )
+                  print("ERROR: La fila de botones no es una lista.")
                   sys.exit(1)
 
               if len(row) != 1:
@@ -546,39 +509,27 @@ jobs:
               button = row[0]
 
               if not isinstance(button, dict):
-                  print(
-                      "ERROR: El botón no es un objeto válido."
-                  )
+                  print("ERROR: El botón no es un objeto válido.")
                   sys.exit(1)
 
               button_text = button.get("text")
               button_url = button.get("url")
 
               if not button_text:
-                  print(
-                      "ERROR: El botón no tiene texto."
-                  )
+                  print("ERROR: El botón no tiene texto.")
                   sys.exit(1)
 
               if not button_url:
-                  print(
-                      "ERROR: El botón no tiene URL."
-                  )
+                  print("ERROR: El botón no tiene URL.")
                   sys.exit(1)
 
               prepared_manifest["pistas"].append(
                   {
                       "index": index,
-                      "deezer_track_id": pista.get(
-                          "deezer_track_id"
-                      ),
+                      "deezer_track_id": pista.get("deezer_track_id"),
                       "titulo": pista.get("titulo"),
-                      "titulo_publicacion": pista.get(
-                          "titulo_publicacion"
-                      ),
-                      "telegram_file": str(
-                          telegram_output
-                      ),
+                      "titulo_publicacion": pista.get("titulo_publicacion"),
+                      "telegram_file": str(telegram_output),
                       "messages": 2,
                       "button_text": button_text,
                       "button_url": button_url
@@ -588,14 +539,11 @@ jobs:
               print("  Mensaje 1: ✓ photo + caption")
               print("  Mensaje 2: ✓ audio")
               print(f"  Botón: ✓ {button_text} -> {button_url}")
-              print("  ✓ PISTA PREPARADA")
-              print("")
+              print("  ✓ PISTA PREPARADA\n")
 
           prepared_manifest["ok"] = True
 
-          manifest_path = Path(
-              "telegram_prepared_manifest.json"
-          )
+          manifest_path = Path("telegram_prepared_manifest.json")
 
           with manifest_path.open("w", encoding="utf-8") as f:
               json.dump(
@@ -608,19 +556,12 @@ jobs:
           print("==========================================")
           print("✓ TODAS LAS PISTAS PREPARADAS")
           print("==========================================")
-          print(
-              f"Pistas preparadas: "
-              f"{len(pistas)}/{len(pistas)}"
-          )
-          print("")
-          print(
-              "IMPORTANTE: todavía NO se ha enviado "
-              "ningún mensaje a Telegram."
-          )
+          print(f"Pistas preparadas: {len(pistas)}/{len(pistas)}\n")
+          print("IMPORTANTE: todavía NO se ha enviado ningún mensaje a Telegram.")
           PY
 
       # ============================================================
-      # 12. MOSTRAR MANIFIESTO FINAL
+      # 12. MOSTRAR MANIFIESTO
       # ============================================================
       - name: Mostrar manifiesto de publicación
         run: |
@@ -640,19 +581,16 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
           import subprocess
           import sys
           import time
           from pathlib import Path
 
           manifest_path = Path("telegram_prepared_manifest.json")
-          processing_path = Path("processing_result.json")
 
           with manifest_path.open("r", encoding="utf-8") as f:
               manifest = json.load(f)
-
-          with processing_path.open("r", encoding="utf-8") as f:
-              processing = json.load(f)
 
           if not manifest.get("ok"):
               print("ERROR: El manifiesto no está marcado como válido.")
@@ -664,28 +602,18 @@ jobs:
               print("ERROR: El manifiesto no contiene pistas.")
               sys.exit(1)
 
-          album_id = processing.get("deezer_album_id")
+          album_id = manifest.get("deezer_album_id")
 
-          if not album_id:
-              print("ERROR: Falta deezer_album_id en processing_result.json.")
+          if album_id is None:
+              print("ERROR: El manifiesto no contiene deezer_album_id.")
               sys.exit(1)
-
-          fecha = processing.get("fecha")
-          tipo = processing.get("tipo")
-          nombre_publicacion = processing.get("nombre_publicacion")
-          portada = processing.get("portada")
 
           print("==========================================")
           print("PUBLICACIÓN EN TELEGRAM")
           print("==========================================")
-          print(f"Publicación: {nombre_publicacion}")
+          print(f"Publicación: {manifest.get('nombre_publicacion')}")
           print(f"Deezer album ID: {album_id}")
-          print(f"Pistas: {len(pistas)}")
-          print("")
-
-          # Configurar Git una sola vez antes de procesar el bucle
-          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+          print(f"Pistas: {len(pistas)}\n")
 
           for position, pista in enumerate(pistas, start=1):
               index = pista.get("index")
@@ -703,7 +631,7 @@ jobs:
                   print(f"ERROR: La pista {index} no tiene telegram_file.")
                   sys.exit(1)
 
-              if not track_id:
+              if track_id is None:
                   print(f"ERROR: La pista {index} no tiene deezer_track_id.")
                   sys.exit(1)
 
@@ -714,7 +642,7 @@ jobs:
                   sys.exit(1)
 
               print(f"[{position}/{len(pistas)}] Publicando: {titulo}")
-              print(f"  Deezer track ID: {track_id}")
+              print(f"  Track ID: {track_id}")
 
               publisher = subprocess.run(
                   [
@@ -730,13 +658,13 @@ jobs:
                       "--track-index",
                       str(index),
                       "--tipo",
-                      str(tipo or ""),
+                      str(manifest.get("tipo") or ""),
                       "--nombre-publicacion",
-                      str(nombre_publicacion or ""),
+                      str(manifest.get("nombre_publicacion") or ""),
                       "--fecha",
-                      str(fecha or ""),
+                      str(manifest.get("fecha") or ""),
                       "--portada",
-                      str(portada or "")
+                      str(manifest.get("portada") or "")
                   ],
                   capture_output=True,
                   text=True
@@ -745,66 +673,23 @@ jobs:
               if publisher.stdout:
                   print(publisher.stdout)
 
-              # Persistir estado si hubo cambios
-              git_status = subprocess.run(
-                  ["git", "status", "--porcelain", "--", "data/publication_state.json"],
-                  capture_output=True,
-                  text=True
-              )
-
-              if git_status.stdout.strip():
-                  print("\nGuardando estado persistente en el repositorio...")
-                  subprocess.run(["git", "add", "data/publication_state.json"], check=True)
-
-                  commit_message = f"chore: actualizar estado de publicación {album_id}/{track_id}"
-                  commit_result = subprocess.run(
-                      ["git", "commit", "-m", commit_message],
-                      capture_output=True,
-                      text=True
-                  )
-
-                  if commit_result.returncode != 0:
-                      print("ERROR haciendo git commit.")
-                      print(commit_result.stdout)
-                      print(commit_result.stderr)
-                      sys.exit(1)
-
-                  push_result = subprocess.run(
-                      ["git", "push"],
-                      capture_output=True,
-                      text=True
-                  )
-
-                  if push_result.returncode != 0:
-                      print("ERROR haciendo git push.")
-                      print(push_result.stdout)
-                      print(push_result.stderr)
-                      sys.exit(1)
-
-                  print("✓ Estado persistido en GitHub.")
-              else:
-                  print("✓ No hubo cambios nuevos en publication_state.json.")
-
               if publisher.returncode != 0:
                   print(f"\nERROR: Falló la publicación de la pista {index}.")
                   if publisher.stderr:
-                      print("STDERR DEL PUBLISHER:")
+                      print("STDERR:")
                       print(publisher.stderr)
-
-                  print("\nEl estado de publicación fue conservado para poder reanudar posteriormente.")
                   sys.exit(1)
 
-              print(f"✓ Pista {index} procesada por telegram_publisher.py.")
+              print(f"✓ Pista {index} procesada correctamente.\n")
 
               if position < len(pistas):
-                  print("Esperando 2 segundos antes de la siguiente pista...")
                   time.sleep(2)
 
-          print("\n==========================================")
+          print("==========================================")
           print("✓ PUBLICACIÓN COMPLETADA")
           print("==========================================")
           print(f"Pistas procesadas: {len(pistas)}/{len(pistas)}")
-          print(f"Mensajes previstos: {len(pistas) * 2}")
+          print(f"Mensajes enviados/verificados: {len(pistas) * 2}")
           PY
 
       # ============================================================
@@ -814,17 +699,17 @@ jobs:
         if: always()
         run: |
           echo "=========================================="
-          echo "ESTADO FINAL DE PUBLICACIÓN"
+          echo "PUBLICATION STATE - FINAL"
           echo "=========================================="
 
           if [ -f "data/publication_state.json" ]; then
             cat data/publication_state.json
           else
-            echo "No existe publication_state.json"
+            echo "No existe data/publication_state.json"
           fi
 
       # ============================================================
-      # 15. SUBIR RESULTADOS DE LA PRUEBA
+      # 15. SUBIR RESULTADOS
       # ============================================================
       - name: Subir resultados de publicación
         if: always()
