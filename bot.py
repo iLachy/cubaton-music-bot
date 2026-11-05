@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import tempfile
 import html
 import unicodedata
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from config import (
 )
 from artists import ARTISTAS
 from logging_setup import get_logger
+from telegram_message_state import TelegramMessageState, PublicationStateError
 
 log = get_logger("bot")
 
@@ -116,81 +118,104 @@ ESTADO_VERSION = 2
 
 def cargar_estado():
     """
-    Carga el estado.
+    Carga el estado de canciones publicadas.
 
-    La versión 2 guarda cada canción individualmente.
+    Solo devuelve None cuando el archivo no existe (primera ejecución).
+    Un archivo corrupto, incompatible o mal formado detiene el bot:
+    nunca se reconstruye una línea base sobre un estado dudoso.
     """
 
     if not os.path.exists(STATE_FILE):
         return None
 
     try:
-        with open(
-            STATE_FILE,
-            "r",
-            encoding="utf-8"
-        ) as archivo:
-
+        with open(STATE_FILE, "r", encoding="utf-8") as archivo:
             estado = json.load(archivo)
+    except Exception as error:
+        raise RuntimeError(
+            f"No se pudo leer el estado {STATE_FILE}: {error}. "
+            "Se detiene el bot; no se creará una nueva línea base."
+        ) from error
 
-        if not isinstance(estado, dict):
-            return None
-
-        if estado.get("version") != ESTADO_VERSION:
-            log.warning("Estado antiguo detectado.")
-            log.warning("Se reconstruirá la línea base con el nuevo sistema.")
-            return None
-
-        canciones = estado.get(
-            "canciones",
-            []
+    if not isinstance(estado, dict):
+        raise RuntimeError(
+            f"El estado {STATE_FILE} no contiene un objeto JSON."
         )
 
-        if not isinstance(canciones, list):
-            return None
+    if estado.get("version") != ESTADO_VERSION:
+        raise RuntimeError(
+            f"Versión de estado incompatible en {STATE_FILE}: "
+            f"{estado.get('version')!r}; se esperaba {ESTADO_VERSION}. "
+            "No se reconstruirá automáticamente la línea base."
+        )
 
-        return {
-            "version": ESTADO_VERSION,
-            "canciones": set(canciones),
-        }
+    canciones = estado.get("canciones")
+    if not isinstance(canciones, list):
+        raise RuntimeError(
+            f"El campo 'canciones' de {STATE_FILE} no es una lista."
+        )
 
-    except Exception as error:
+    if any(not isinstance(item, str) or not item for item in canciones):
+        raise RuntimeError(
+            f"El estado {STATE_FILE} contiene claves de canción inválidas."
+        )
 
-        log.error("No se pudo cargar el estado: %s", error)
-
-        return None
+    return {
+        "version": ESTADO_VERSION,
+        "canciones": set(canciones),
+    }
 
 
 def guardar_estado(estado):
-    """Guarda el estado en state/releases.json."""
+    """Guarda state/releases.json mediante reemplazo atómico."""
 
     carpeta = os.path.dirname(STATE_FILE)
-
     if carpeta:
-        os.makedirs(
-            carpeta,
-            exist_ok=True
-        )
+        os.makedirs(carpeta, exist_ok=True)
 
     datos = {
         "version": ESTADO_VERSION,
-        "canciones": sorted(
-            list(estado["canciones"])
-        ),
+        "canciones": sorted(set(estado["canciones"])),
     }
 
-    with open(
-        STATE_FILE,
-        "w",
-        encoding="utf-8"
-    ) as archivo:
+    directorio = carpeta or "."
+    descriptor, ruta_temporal = tempfile.mkstemp(
+        prefix=".releases.",
+        suffix=".tmp",
+        dir=directorio,
+    )
 
-        json.dump(
-            datos,
-            archivo,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as archivo:
+            json.dump(
+                datos,
+                archivo,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            archivo.flush()
+            os.fsync(archivo.fileno())
+
+        os.replace(ruta_temporal, STATE_FILE)
+
+        try:
+            descriptor_directorio = os.open(directorio, os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor_directorio)
+            finally:
+                os.close(descriptor_directorio)
+        except (AttributeError, OSError):
+            pass
+
+    except Exception as error:
+        try:
+            if os.path.exists(ruta_temporal):
+                os.unlink(ruta_temporal)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"No se pudo guardar el estado {STATE_FILE}: {error}"
+        ) from error
 
 
 # ============================================================
@@ -1577,8 +1602,9 @@ def obtener_album_browse_id_para_cancion(ytmusic, cancion):
     return None
 
 
-def enviar_sin_portada(caption, reply_markup):
+def enviar_sin_portada(caption, reply_markup, publication_state, song_key):
     """Publica solo texto con el botón cuando no hay portada disponible."""
+    publication_state.mark_sending(song_key, "cover")
     try:
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendMessage",
@@ -1601,13 +1627,23 @@ def enviar_sin_portada(caption, reply_markup):
             timeout=60,
         )
         if not respuesta.ok:
-            return False, respuesta.text
+            detalle = respuesta.text
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "cover", detalle)
+            else:
+                publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
         datos = respuesta.json()
         if not datos.get("ok"):
-            return False, str(datos)
-        return True, None
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "cover", message_id)
+        return True, message_id, None
     except Exception as error:
-        return False, str(error)
+        publication_state.mark_unknown(song_key, "cover", str(error))
+        return False, None, str(error)
 
 
 def _titulo_base(titulo):
@@ -1763,10 +1799,10 @@ def buscar_preview(cancion):
     return None
 
 
-def enviar_preview_audio(cancion, preview):
+def enviar_preview_audio(cancion, preview, publication_state, song_key):
     """
     Envía el preview como audio justo debajo de la publicación.
-    Nunca lanza errores ni afecta al estado: si falla, solo lo informa.
+    Registra el estado y el message_id; los errores ambiguos quedan bloqueados.
     Si Telegram pide esperar (error 429), espera y reintenta una vez.
     """
     teclado = json.dumps(
@@ -1774,6 +1810,7 @@ def enviar_preview_audio(cancion, preview):
         ensure_ascii=False,
     )
 
+    publication_state.mark_sending(song_key, "preview")
     try:
         for intento in range(2):
             respuesta = requests.post(
@@ -1813,14 +1850,28 @@ def enviar_preview_audio(cancion, preview):
             break
 
         if not respuesta.ok:
-            print(f"Preview: Telegram rechazó el audio: {respuesta.text}")
-            return False
+            detalle = respuesta.text
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "preview", detalle)
+            else:
+                publication_state.mark_failed(song_key, "preview", detalle)
+            print(f"Preview: Telegram respondió con error al audio: {detalle}")
+            return False, None, detalle
 
+        datos = respuesta.json()
+        if not datos.get("ok"):
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "preview", detalle)
+            print(f"Preview: Telegram rechazó el audio: {detalle}")
+            return False, None, detalle
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "preview", message_id)
         print(f"Preview de 30 s enviado correctamente ({preview['fuente']}).")
-        return True
+        return True, message_id, None
     except Exception as error:
-        print(f"Preview: no se pudo enviar el audio: {error}")
-        return False
+        publication_state.mark_unknown(song_key, "preview", str(error))
+        print(f"Preview: no se pudo confirmar el envío del audio: {error}")
+        return False, None, str(error)
 
 
 def _boton_cancion(cancion):
@@ -1830,7 +1881,7 @@ def _boton_cancion(cancion):
     return {"inline_keyboard": [[{"text": texto, "url": url}]]}
 
 
-def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
+def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton, publication_state, song_key):
     """Publica usando una portada ya disponible por URL (p. ej. Deezer)."""
     try:
         imagen = requests.get(cancion["portada_url"], timeout=30)
@@ -1844,9 +1895,12 @@ def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
             return enviar_sin_portada(
                 caption,
                 reply_markup if con_boton else None,
+                publication_state,
+                song_key,
             )
-        return False, f"No se pudo descargar la portada: {error}"
+        return False, None, f"No se pudo descargar la portada: {error}"
 
+    publication_state.mark_sending(song_key, "cover")
     try:
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendPhoto",
@@ -1875,19 +1929,31 @@ def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
             timeout=60,
         )
         if not respuesta.ok:
-            return False, respuesta.text
+            detalle = respuesta.text
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "cover", detalle)
+            else:
+                publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
         datos = respuesta.json()
         if not datos.get("ok"):
-            return False, str(datos)
-        return True, None
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "cover", message_id)
+        return True, message_id, None
     except Exception as error:
-        return False, str(error)
+        publication_state.mark_unknown(song_key, "cover", str(error))
+        return False, None, str(error)
 
 
 def publicar_cancion(
     ytmusic,
     cancion,
     con_boton=False,
+    publication_state=None,
+    song_key=None,
 ):
     """
     Publica una canción.
@@ -1954,6 +2020,8 @@ def publicar_cancion(
             caption,
             reply_markup,
             con_boton,
+            publication_state,
+            song_key,
         )
 
     album_browse_id = obtener_album_browse_id_para_cancion(
@@ -1970,9 +2038,12 @@ def publicar_cancion(
             return enviar_sin_portada(
                 caption,
                 reply_markup if con_boton else None,
+                publication_state,
+                song_key,
             )
         return (
             False,
+            None,
             "No se pudo identificar el album.id de la canción; "
             "no se puede obtener la portada mediante get_album()."
         )
@@ -1990,6 +2061,7 @@ def publicar_cancion(
         if not datos_album:
             return (
                 False,
+                None,
                 f"get_album() no devolvió datos para {album_browse_id}."
             )
 
@@ -1998,6 +2070,7 @@ def publicar_cancion(
         if not thumbnails:
             return (
                 False,
+                None,
                 f"El álbum {album_browse_id} no contiene thumbnails."
             )
 
@@ -2012,6 +2085,7 @@ def publicar_cancion(
         if not thumbnails_validas:
             return (
                 False,
+                None,
                 f"El álbum {album_browse_id} no contiene thumbnails válidas."
             )
 
@@ -2061,6 +2135,7 @@ def publicar_cancion(
     except Exception as error:
         return (
             False,
+            None,
             f"No se pudo preparar la portada de YouTube Music mediante get_album(): {error}"
         )
 
@@ -2068,6 +2143,7 @@ def publicar_cancion(
     # ENVIAR A TELEGRAM
     # ========================================================
 
+    publication_state.mark_sending(song_key, "cover")
     try:
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendPhoto",
@@ -2097,29 +2173,26 @@ def publicar_cancion(
         )
 
         if not respuesta.ok:
-            return (
-                False,
-                respuesta.text
-            )
+            detalle = respuesta.text
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "cover", detalle)
+            else:
+                publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
 
         datos = respuesta.json()
-
         if not datos.get("ok"):
-            return (
-                False,
-                str(datos)
-            )
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
 
-        return (
-            True,
-            None
-        )
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "cover", message_id)
+        return True, message_id, None
 
     except Exception as error:
-        return (
-            False,
-            str(error)
-        )
+        publication_state.mark_unknown(song_key, "cover", str(error))
+        return False, None, str(error)
 
 
 # ============================================================
@@ -2746,21 +2819,34 @@ def main():
     # CARGAR ESTADO
     # ========================================================
 
-    estado = cargar_estado()
+    # Cargar primero el estado granular para no crear una línea base
+    # si existe historial de mensajes pero falta releases.json.
+    try:
+        publication_state = TelegramMessageState()
+    except PublicationStateError as error:
+        log.critical("Estado de publicaciones no seguro: %s", error)
+        raise SystemExit(1)
+
+    try:
+        estado = cargar_estado()
+    except RuntimeError as error:
+        log.critical("Estado de lanzamientos no seguro: %s", error)
+        raise SystemExit(1)
 
     if estado is None:
+        if publication_state.data.get("songs"):
+            log.critical(
+                "Falta %s, pero existe historial de mensajes de Telegram. "
+                "Se detiene el bot para evitar perder publicaciones pendientes.",
+                STATE_FILE,
+            )
+            raise SystemExit(1)
 
-        crear_linea_base(
-            ytmusic
-        )
-
+        crear_linea_base(ytmusic)
         return
 
-    canciones_publicadas = (
-        estado[
-            "canciones"
-        ]
-    )
+    canciones_publicadas = estado["canciones"]
+
 
     print()
 
@@ -2912,6 +2998,28 @@ def main():
         guardar_estado(estado)
 
     # ========================================================
+    # RECUPERAR PUBLICACIONES INCOMPLETAS
+    # ========================================================
+
+    claves_detectadas = {
+        clave_cancion(cancion)
+        for cancion in nuevas_canciones
+    }
+    reanudadas = 0
+    for clave_pendiente, datos_guardados in publication_state.incomplete_songs():
+        if clave_pendiente in claves_detectadas:
+            continue
+        nuevas_canciones.append(datos_guardados)
+        claves_detectadas.add(clave_pendiente)
+        reanudadas += 1
+
+    if reanudadas:
+        print(
+            f"Se recuperan {reanudadas} publicación(es) incompleta(s) "
+            "desde el estado persistente."
+        )
+
+    # ========================================================
     # RESULTADO DEL DETECTOR
     # ========================================================
 
@@ -2939,110 +3047,142 @@ def main():
     print()
 
     # ========================================================
-    # PUBLICAR
+    # PUBLICAR / REANUDAR
     # ========================================================
 
     publicadas = 0
     errores = 0
 
-    for numero, cancion in enumerate(
-        nuevas_canciones,
-        start=1
-    ):
+    for numero, cancion in enumerate(nuevas_canciones, start=1):
+        print(f"[PUBLICACIÓN {numero}/{len(nuevas_canciones)}]")
+        print(f"Artista(s): {cancion['artistas']}")
+        print(f"Canción: {cancion['titulo']}")
+        print(f"Lanzamiento: {cancion['nombre_publicacion']}")
+        print(f"Año: {cancion['anio']}")
 
-        print(
-            f"[PUBLICACIÓN "
-            f"{numero}/"
-            f"{len(nuevas_canciones)}]"
-        )
-
-        print(
-            f"Artista(s): "
-            f"{cancion['artistas']}"
-        )
-
-        print(
-            f"Canción: "
-            f"{cancion['titulo']}"
-        )
-
-        print(
-            f"Lanzamiento: "
-            f"{cancion['nombre_publicacion']}"
-        )
-
-        print(
-            f"Año: "
-            f"{cancion['anio']}"
-        )
-
-        # El preview se busca antes de publicar: si no hay preview,
-        # el botón de YouTube Music va en el post principal.
-        preview = None
-        if ENVIAR_PREVIEW_AUDIO:
-            preview = buscar_preview(cancion)
-
-        exito, error = (
-            publicar_cancion(
-                ytmusic,
-                cancion,
-                con_boton=(BOTON_EN_POST or preview is None),
-            )
-        )
-
-        if exito:
-
-            print(
-                "PUBLICADA "
-                "CORRECTAMENTE"
+        song_key = clave_cancion(cancion)
+        try:
+            publication_state.ensure_song(
+                song_key,
+                song_id=cancion.get("id"),
+                title=cancion.get("titulo"),
+                artists=cancion.get("artistas"),
+                video_id=cancion.get("video_id"),
+                song_data=cancion,
             )
 
-            # Solo se registra después
-            # de confirmarse la publicación.
-            canciones_publicadas.add(
-                cancion["id"]
-            )
-            registrar_claves_cancion(
-                canciones_publicadas,
-                cancion,
-            )
+            cover_step = publication_state.get_step(song_key, "cover")
+            preview_step = publication_state.get_step(song_key, "preview")
 
-            # Guardado inmediato.
-            guardar_estado(
-                estado
+            # Un envío desconocido no se reintenta: podría duplicar un
+            # mensaje que Telegram sí recibió antes de perderse la respuesta.
+            unknown_steps = [
+                name for name, step in (
+                    ("portada", cover_step),
+                    ("preview", preview_step),
+                )
+                if step.get("status") == "unknown"
+            ]
+            if unknown_steps:
+                detalle = (
+                    "Estado de envío desconocido para: "
+                    + ", ".join(unknown_steps)
+                    + ". Revisar el canal antes de autorizar un reintento."
+                )
+                print(f"PUBLICACIÓN BLOQUEADA: {detalle}")
+                errores += 1
+                enviar_alerta_error(cancion, "Revisión de publicación", detalle)
+                continue
+
+            # Buscar el preview solo si aún no está resuelto.
+            preview = None
+            if preview_step.get("status") in ("pending", "failed"):
+                if ENVIAR_PREVIEW_AUDIO:
+                    preview = buscar_preview(cancion)
+                    if preview is None:
+                        publication_state.mark_not_available(
+                            song_key,
+                            "preview",
+                            "No se encontró un preview disponible en Apple Music ni Deezer.",
+                        )
+                else:
+                    publication_state.mark_not_available(
+                        song_key,
+                        "preview",
+                        "El envío de previews está desactivado en config.py.",
+                    )
+
+            # Si el preview ya fue enviado o se determinó que no existe,
+            # no hace falta volver a buscarlo.
+            preview_step = publication_state.get_step(song_key, "preview")
+            preview_disponible = (
+                preview is not None
+                or preview_step.get("status") == "sent"
             )
+            cover_step = publication_state.get_step(song_key, "cover")
 
-            publicadas += 1
+            if cover_step.get("status") != "sent":
+                exito, cover_message_id, error = publicar_cancion(
+                    ytmusic,
+                    cancion,
+                    con_boton=(BOTON_EN_POST or not preview_disponible),
+                    publication_state=publication_state,
+                    song_key=song_key,
+                )
+                if not exito:
+                    print("ERROR AL PUBLICAR LA PORTADA")
+                    print(error)
+                    errores += 1
+                    enviar_alerta_error(cancion, "Publicación de portada", error)
+                    continue
+                print(f"Portada publicada. message_id={cover_message_id}")
+            else:
+                print(
+                    "Portada ya publicada; se conserva message_id="
+                    f"{cover_step.get('message_id')}. No se duplica."
+                )
 
-            # Adelanto de audio justo debajo de la publicación.
-            # Orden garantizado: Post -> Audio -> siguiente Post -> Audio.
-            # Todo se envía de forma secuencial, una canción a la vez.
-            if preview:
-                enviar_preview_audio(cancion, preview)
+            # El preview se envía únicamente si todavía no se ha enviado.
+            preview_step = publication_state.get_step(song_key, "preview")
+            if preview is not None and preview_step.get("status") != "sent":
+                exito, preview_message_id, error = enviar_preview_audio(
+                    cancion,
+                    preview,
+                    publication_state,
+                    song_key,
+                )
+                if not exito:
+                    print("ERROR AL PUBLICAR EL PREVIEW")
+                    print(error)
+                    errores += 1
+                    enviar_alerta_error(cancion, "Publicación de preview", error)
+                    continue
+                print(f"Preview publicado. message_id={preview_message_id}")
+            elif preview_step.get("status") == "sent":
+                print(
+                    "Preview ya publicado; se conserva message_id="
+                    f"{preview_step.get('message_id')}. No se duplica."
+                )
+
+            # La canción solo entra en el estado de deduplicación cuando
+            # portada y preview están resueltos (enviado/no disponible).
+            if publication_state.is_song_complete(song_key):
+                canciones_publicadas.add(cancion["id"])
+                registrar_claves_cancion(canciones_publicadas, cancion)
+                guardar_estado(estado)
+                publicadas += 1
+                print("PUBLICACIÓN COMPLETA Y ESTADO GUARDADO.")
+            else:
+                errores += 1
+                print("PUBLICACIÓN INCOMPLETA: se reanudará en el próximo ciclo.")
 
             time.sleep(PAUSA_ENTRE_PUBLICACIONES)
 
-        else:
-
-            print(
-                "ERROR AL PUBLICAR"
-            )
-
-            print(
-                error
-            )
-
+        except PublicationStateError as error:
+            log.exception("Error en estado granular de %s", song_key)
             errores += 1
-
-            enviar_alerta_error(
-                cancion,
-                "Publicación en Telegram",
-                error,
-            )
-
-            # No se registra.
-            # Se reintentará en la próxima
-            # ejecución.
+            enviar_alerta_error(cancion, "Estado granular de publicación", str(error))
+            continue
 
         print()
 
