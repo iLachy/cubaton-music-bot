@@ -45,21 +45,59 @@ jobs:
           python -m unittest discover -s tests -v
 
       - name: Ciclo del bot (cada 5 minutos durante unas 5 h 35 min)
+        shell: bash
         run: |
-          INTERVALO=300          # segundos entre el inicio de cada ejecución
-          DURACION_MAX=20100     # 5 h 35 min; luego se relanza solo
+          set -euo pipefail
+
+          INTERVALO=300
+          DURACION_MAX=20100
           FALLOS_SEGUIDOS=0
+          BRANCH="${GITHUB_REF_NAME}"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          persist_state() {
+            if [ -f state/releases.json ]; then
+              git add state/releases.json
+            fi
+            if [ -f state/telegram_messages.json ]; then
+              git add state/telegram_messages.json
+            fi
+
+            if git diff --cached --quiet; then
+              echo "No hay cambios de estado que guardar."
+              return 0
+            fi
+
+            git commit -m "Actualizar estado de publicaciones"
+
+            if ! git pull --rebase origin "$BRANCH"; then
+              git rebase --abort || true
+              echo "::error::No se pudo integrar el estado remoto. No se continuará."
+              return 1
+            fi
+
+            if ! git push origin "HEAD:$BRANCH"; then
+              echo "El primer push falló; se intentará sincronizar y repetir una vez."
+              if ! git pull --rebase origin "$BRANCH"; then
+                git rebase --abort || true
+                echo "::error::Falló la sincronización tras el primer push."
+                return 1
+              fi
+              if ! git push origin "HEAD:$BRANCH"; then
+                echo "::error::No se pudo persistir el estado en GitHub."
+                return 1
+              fi
+            fi
+          }
 
           while [ "$SECONDS" -lt "$DURACION_MAX" ]; do
             INICIO=$SECONDS
             echo "::group::Ejecución $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
 
-            # Recoge cambios del repo (por ejemplo, un bot.py nuevo).
-            git pull --rebase --autostash origin "${{ github.ref_name }}" \
-              || echo "Aviso: no se pudo actualizar el repositorio."
+            # No ejecutar el bot sobre una copia desactualizada del estado.
+            git pull --rebase --autostash origin "$BRANCH"
 
             if python bot.py; then
               FALLOS_SEGUIDOS=0
@@ -67,22 +105,12 @@ jobs:
               FALLOS_SEGUIDOS=$((FALLOS_SEGUIDOS + 1))
               echo "El bot terminó con error ($FALLOS_SEGUIDOS seguido/s)."
             fi
+
+            # Un fallo de persistencia detiene el ciclo: no se permite
+            # continuar con un estado local que no quedó guardado en GitHub.
+            persist_state
             echo "::endgroup::"
 
-            # Guarda el estado en GitHub tras cada ejecución.
-            if [ -f state/releases.json ] || [ -f state/telegram_messages.json ]; then
-              git add state/releases.json
-              if [ -f state/telegram_messages.json ]; then
-                git add state/telegram_messages.json
-              fi
-              if ! git diff --cached --quiet; then
-                git commit -m "Actualizar estado de lanzamientos"
-                git pull --rebase origin "${{ github.ref_name }}" || true
-                git push || echo "Aviso: no se pudo subir el estado."
-              fi
-            fi
-
-            # Fallo persistente: termina en rojo para que GitHub te avise.
             if [ "$FALLOS_SEGUIDOS" -ge 3 ]; then
               echo "::error::El bot falló 3 veces seguidas; se detiene el ciclo."
               exit 1
@@ -94,26 +122,49 @@ jobs:
           done
 
           # Relanza el ciclo antes de terminar.
-          gh workflow run "Cubaton Music Bot" --ref "${{ github.ref_name }}"
+          gh workflow run "Cubaton Music Bot" --ref "$BRANCH"
 
-      # Si el ciclo se cancela o se corta, guarda lo pendiente para no
-      # volver a publicar canciones ya enviadas.
       - name: Guardar estado pendiente
         if: always()
+        shell: bash
         run: |
+          set -euo pipefail
+
           if [ ! -f state/releases.json ] && [ ! -f state/telegram_messages.json ]; then
+            echo "No hay archivos de estado para persistir."
             exit 0
           fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/releases.json
+          BRANCH="${GITHUB_REF_NAME}"
+
+          if [ -f state/releases.json ]; then
+            git add state/releases.json
+          fi
           if [ -f state/telegram_messages.json ]; then
             git add state/telegram_messages.json
           fi
+
           if git diff --cached --quiet; then
-            echo "No hay cambios en el estado."
-          else
-            git commit -m "Actualizar estado de lanzamientos"
-            git pull --rebase origin "${{ github.ref_name }}" || true
-            git push || echo "Aviso: no se pudo subir el estado."
+            echo "No hay cambios de estado pendientes."
+            exit 0
+          fi
+
+          git commit -m "Guardar estado pendiente de publicaciones"
+
+          if ! git pull --rebase origin "$BRANCH"; then
+            git rebase --abort || true
+            echo "::error::No se pudo integrar el estado pendiente."
+            exit 1
+          fi
+
+          if ! git push origin "HEAD:$BRANCH"; then
+            echo "El push final falló; se intentará sincronizar y repetir una vez."
+            if ! git pull --rebase origin "$BRANCH"; then
+              git rebase --abort || true
+              echo "::error::Falló la sincronización del estado pendiente."
+              exit 1
+            fi
+            git push origin "HEAD:$BRANCH"
           fi
