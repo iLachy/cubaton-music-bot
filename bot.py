@@ -28,6 +28,7 @@ from config import (
 )
 from artists import ARTISTAS
 from logging_setup import get_logger
+from telegram_message_state import TelegramMessageState, PublicationStateError
 
 log = get_logger("bot")
 
@@ -1577,8 +1578,9 @@ def obtener_album_browse_id_para_cancion(ytmusic, cancion):
     return None
 
 
-def enviar_sin_portada(caption, reply_markup):
+def enviar_sin_portada(caption, reply_markup, publication_state, song_key):
     """Publica solo texto con el botón cuando no hay portada disponible."""
+    publication_state.mark_sending(song_key, "cover")
     try:
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendMessage",
@@ -1601,13 +1603,20 @@ def enviar_sin_portada(caption, reply_markup):
             timeout=60,
         )
         if not respuesta.ok:
-            return False, respuesta.text
+            detalle = respuesta.text
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
         datos = respuesta.json()
         if not datos.get("ok"):
-            return False, str(datos)
-        return True, None
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "cover", message_id)
+        return True, message_id, None
     except Exception as error:
-        return False, str(error)
+        publication_state.mark_unknown(song_key, "cover", str(error))
+        return False, None, str(error)
 
 
 def _titulo_base(titulo):
@@ -1763,7 +1772,7 @@ def buscar_preview(cancion):
     return None
 
 
-def enviar_preview_audio(cancion, preview):
+def enviar_preview_audio(cancion, preview, publication_state, song_key):
     """
     Envía el preview como audio justo debajo de la publicación.
     Nunca lanza errores ni afecta al estado: si falla, solo lo informa.
@@ -1774,6 +1783,7 @@ def enviar_preview_audio(cancion, preview):
         ensure_ascii=False,
     )
 
+    publication_state.mark_sending(song_key, "preview")
     try:
         for intento in range(2):
             respuesta = requests.post(
@@ -1813,14 +1823,25 @@ def enviar_preview_audio(cancion, preview):
             break
 
         if not respuesta.ok:
-            print(f"Preview: Telegram rechazó el audio: {respuesta.text}")
-            return False
+            detalle = respuesta.text
+            publication_state.mark_failed(song_key, "preview", detalle)
+            print(f"Preview: Telegram rechazó el audio: {detalle}")
+            return False, None, detalle
 
+        datos = respuesta.json()
+        if not datos.get("ok"):
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "preview", detalle)
+            print(f"Preview: Telegram rechazó el audio: {detalle}")
+            return False, None, detalle
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "preview", message_id)
         print(f"Preview de 30 s enviado correctamente ({preview['fuente']}).")
-        return True
+        return True, message_id, None
     except Exception as error:
-        print(f"Preview: no se pudo enviar el audio: {error}")
-        return False
+        publication_state.mark_unknown(song_key, "preview", str(error))
+        print(f"Preview: no se pudo confirmar el envío del audio: {error}")
+        return False, None, str(error)
 
 
 def _boton_cancion(cancion):
@@ -1830,7 +1851,7 @@ def _boton_cancion(cancion):
     return {"inline_keyboard": [[{"text": texto, "url": url}]]}
 
 
-def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
+def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton, publication_state, song_key):
     """Publica usando una portada ya disponible por URL (p. ej. Deezer)."""
     try:
         imagen = requests.get(cancion["portada_url"], timeout=30)
@@ -1844,9 +1865,12 @@ def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
             return enviar_sin_portada(
                 caption,
                 reply_markup if con_boton else None,
+                publication_state,
+                song_key,
             )
         return False, f"No se pudo descargar la portada: {error}"
 
+    publication_state.mark_sending(song_key, "cover")
     try:
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendPhoto",
@@ -1875,19 +1899,28 @@ def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton):
             timeout=60,
         )
         if not respuesta.ok:
-            return False, respuesta.text
+            detalle = respuesta.text
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
         datos = respuesta.json()
         if not datos.get("ok"):
-            return False, str(datos)
-        return True, None
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "cover", message_id)
+        return True, message_id, None
     except Exception as error:
-        return False, str(error)
+        publication_state.mark_unknown(song_key, "cover", str(error))
+        return False, None, str(error)
 
 
 def publicar_cancion(
     ytmusic,
     cancion,
     con_boton=False,
+    publication_state=None,
+    song_key=None,
 ):
     """
     Publica una canción.
@@ -1954,6 +1987,8 @@ def publicar_cancion(
             caption,
             reply_markup,
             con_boton,
+            publication_state,
+            song_key,
         )
 
     album_browse_id = obtener_album_browse_id_para_cancion(
@@ -1970,6 +2005,8 @@ def publicar_cancion(
             return enviar_sin_portada(
                 caption,
                 reply_markup if con_boton else None,
+                publication_state,
+                song_key,
             )
         return (
             False,
@@ -2068,6 +2105,7 @@ def publicar_cancion(
     # ENVIAR A TELEGRAM
     # ========================================================
 
+    publication_state.mark_sending(song_key, "cover")
     try:
         respuesta = requests.post(
             f"{TELEGRAM_API}/sendPhoto",
@@ -2097,29 +2135,23 @@ def publicar_cancion(
         )
 
         if not respuesta.ok:
-            return (
-                False,
-                respuesta.text
-            )
+            detalle = respuesta.text
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
 
         datos = respuesta.json()
-
         if not datos.get("ok"):
-            return (
-                False,
-                str(datos)
-            )
+            detalle = str(datos)
+            publication_state.mark_failed(song_key, "cover", detalle)
+            return False, None, detalle
 
-        return (
-            True,
-            None
-        )
+        message_id = int(datos.get("result", {}).get("message_id"))
+        publication_state.mark_sent(song_key, "cover", message_id)
+        return True, message_id, None
 
     except Exception as error:
-        return (
-            False,
-            str(error)
-        )
+        publication_state.mark_unknown(song_key, "cover", str(error))
+        return False, None, str(error)
 
 
 # ============================================================
