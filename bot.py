@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import tempfile
 import html
 import unicodedata
 from datetime import datetime, timezone
@@ -117,81 +118,104 @@ ESTADO_VERSION = 2
 
 def cargar_estado():
     """
-    Carga el estado.
+    Carga el estado de canciones publicadas.
 
-    La versión 2 guarda cada canción individualmente.
+    Solo devuelve None cuando el archivo no existe (primera ejecución).
+    Un archivo corrupto, incompatible o mal formado detiene el bot:
+    nunca se reconstruye una línea base sobre un estado dudoso.
     """
 
     if not os.path.exists(STATE_FILE):
         return None
 
     try:
-        with open(
-            STATE_FILE,
-            "r",
-            encoding="utf-8"
-        ) as archivo:
-
+        with open(STATE_FILE, "r", encoding="utf-8") as archivo:
             estado = json.load(archivo)
+    except Exception as error:
+        raise RuntimeError(
+            f"No se pudo leer el estado {STATE_FILE}: {error}. "
+            "Se detiene el bot; no se creará una nueva línea base."
+        ) from error
 
-        if not isinstance(estado, dict):
-            return None
-
-        if estado.get("version") != ESTADO_VERSION:
-            log.warning("Estado antiguo detectado.")
-            log.warning("Se reconstruirá la línea base con el nuevo sistema.")
-            return None
-
-        canciones = estado.get(
-            "canciones",
-            []
+    if not isinstance(estado, dict):
+        raise RuntimeError(
+            f"El estado {STATE_FILE} no contiene un objeto JSON."
         )
 
-        if not isinstance(canciones, list):
-            return None
+    if estado.get("version") != ESTADO_VERSION:
+        raise RuntimeError(
+            f"Versión de estado incompatible en {STATE_FILE}: "
+            f"{estado.get('version')!r}; se esperaba {ESTADO_VERSION}. "
+            "No se reconstruirá automáticamente la línea base."
+        )
 
-        return {
-            "version": ESTADO_VERSION,
-            "canciones": set(canciones),
-        }
+    canciones = estado.get("canciones")
+    if not isinstance(canciones, list):
+        raise RuntimeError(
+            f"El campo 'canciones' de {STATE_FILE} no es una lista."
+        )
 
-    except Exception as error:
+    if any(not isinstance(item, str) or not item for item in canciones):
+        raise RuntimeError(
+            f"El estado {STATE_FILE} contiene claves de canción inválidas."
+        )
 
-        log.error("No se pudo cargar el estado: %s", error)
-
-        return None
+    return {
+        "version": ESTADO_VERSION,
+        "canciones": set(canciones),
+    }
 
 
 def guardar_estado(estado):
-    """Guarda el estado en state/releases.json."""
+    """Guarda state/releases.json mediante reemplazo atómico."""
 
     carpeta = os.path.dirname(STATE_FILE)
-
     if carpeta:
-        os.makedirs(
-            carpeta,
-            exist_ok=True
-        )
+        os.makedirs(carpeta, exist_ok=True)
 
     datos = {
         "version": ESTADO_VERSION,
-        "canciones": sorted(
-            list(estado["canciones"])
-        ),
+        "canciones": sorted(set(estado["canciones"])),
     }
 
-    with open(
-        STATE_FILE,
-        "w",
-        encoding="utf-8"
-    ) as archivo:
+    directorio = carpeta or "."
+    descriptor, ruta_temporal = tempfile.mkstemp(
+        prefix=".releases.",
+        suffix=".tmp",
+        dir=directorio,
+    )
 
-        json.dump(
-            datos,
-            archivo,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as archivo:
+            json.dump(
+                datos,
+                archivo,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            archivo.flush()
+            os.fsync(archivo.fileno())
+
+        os.replace(ruta_temporal, STATE_FILE)
+
+        try:
+            descriptor_directorio = os.open(directorio, os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor_directorio)
+            finally:
+                os.close(descriptor_directorio)
+        except (AttributeError, OSError):
+            pass
+
+    except Exception as error:
+        try:
+            if os.path.exists(ruta_temporal):
+                os.unlink(ruta_temporal)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"No se pudo guardar el estado {STATE_FILE}: {error}"
+        ) from error
 
 
 # ============================================================
@@ -2795,7 +2819,11 @@ def main():
     # CARGAR ESTADO
     # ========================================================
 
-    estado = cargar_estado()
+    try:
+        estado = cargar_estado()
+    except RuntimeError as error:
+        log.critical("Estado de lanzamientos no seguro: %s", error)
+        raise SystemExit(1)
 
     if estado is None:
 
