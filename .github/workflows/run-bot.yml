@@ -65,8 +65,8 @@ jobs:
             echo "::endgroup::"
 
             # Guarda el estado en GitHub tras cada ejecución.
-            if [ -f state/releases.json ]; then
-              git add state/releases.json
+            if [ -f state/releases.json ] || [ -f state/telegram_messages.json ]; then
+              git add state/releases.json state/telegram_messages.json
               if ! git diff --cached --quiet; then
                 git commit -m "Actualizar estado de lanzamientos"
                 git pull --rebase origin "${{ github.ref_name }}" || true
@@ -93,12 +93,12 @@ jobs:
       - name: Guardar estado pendiente
         if: always()
         run: |
-          if [ ! -f state/releases.json ]; then
+          if [ ! -f state/releases.json ] && [ ! -f state/telegram_messages.json ]; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/releases.json
+          git add state/releases.json state/telegram_messages.json
           if git diff --cached --quiet; then
             echo "No hay cambios en el estado."
           else
