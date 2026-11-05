@@ -24,6 +24,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install bot dependencies
+        run: pip install -r requirements.txt
+
       - name: Compile bot and state module
         run: python -m py_compile bot.py telegram_message_state.py
 
