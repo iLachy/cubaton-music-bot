@@ -2819,6 +2819,14 @@ def main():
     # CARGAR ESTADO
     # ========================================================
 
+    # Cargar primero el estado granular para no crear una línea base
+    # si existe historial de mensajes pero falta releases.json.
+    try:
+        publication_state = TelegramMessageState()
+    except PublicationStateError as error:
+        log.critical("Estado de publicaciones no seguro: %s", error)
+        raise SystemExit(1)
+
     try:
         estado = cargar_estado()
     except RuntimeError as error:
@@ -2826,26 +2834,18 @@ def main():
         raise SystemExit(1)
 
     if estado is None:
+        if publication_state.data.get("songs"):
+            log.critical(
+                "Falta %s, pero existe historial de mensajes de Telegram. "
+                "Se detiene el bot para evitar perder publicaciones pendientes.",
+                STATE_FILE,
+            )
+            raise SystemExit(1)
 
-        crear_linea_base(
-            ytmusic
-        )
-
+        crear_linea_base(ytmusic)
         return
 
-    canciones_publicadas = (
-        estado[
-            "canciones"
-        ]
-    )
-
-    # Estado independiente de cada mensaje de Telegram.
-    # Si está corrupto o es incompatible, detenerse: no reconstruirlo.
-    try:
-        publication_state = TelegramMessageState()
-    except PublicationStateError as error:
-        log.critical("Estado de publicaciones no seguro: %s", error)
-        raise SystemExit(1)
+    canciones_publicadas = estado["canciones"]
 
 
     print()
