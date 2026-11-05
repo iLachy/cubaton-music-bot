@@ -104,6 +104,19 @@ class TelegramMessageStateTests(unittest.TestCase):
         self.assertEqual(incomplete[0][0], self.key)
         self.assertEqual(incomplete[0][1]["titulo"], "Canción de prueba")
 
+    def test_corrupt_state_fails_closed(self):
+        self.path.write_text("{broken", encoding="utf-8")
+        with self.assertRaises(PublicationStateError):
+            TelegramMessageState(self.path)
+
+    def test_failed_step_can_be_retried(self):
+        self.state.mark_failed(self.key, "cover", "Telegram rejected the request")
+        self.state.mark_sending(self.key, "cover")
+        self.assertEqual(
+            self.state.get_step(self.key, "cover")["status"],
+            "sending",
+        )
+
     def test_state_file_is_valid_json_after_atomic_save(self):
         self.state.mark_sending(self.key, "cover")
 
