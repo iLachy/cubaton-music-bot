@@ -79,6 +79,31 @@ class TelegramMessageStateTests(unittest.TestCase):
 
         self.assertTrue(self.state.is_song_complete(self.key))
 
+    def test_incomplete_song_metadata_is_available_for_resume(self):
+        metadata = {
+            "id": "video:abc123",
+            "video_id": "abc123",
+            "titulo": "Canción de prueba",
+            "artistas": "Artista de prueba",
+            "nombre_publicacion": "Single",
+            "anio": "2026",
+            "youtube_url": "https://music.youtube.com/watch?v=abc123",
+        }
+        self.state.ensure_song(
+            self.key,
+            song_id="video:abc123",
+            title="Canción de prueba",
+            artists="Artista de prueba",
+            video_id="abc123",
+            song_data=metadata,
+        )
+
+        incomplete = self.state.incomplete_songs()
+
+        self.assertEqual(len(incomplete), 1)
+        self.assertEqual(incomplete[0][0], self.key)
+        self.assertEqual(incomplete[0][1]["titulo"], "Canción de prueba")
+
     def test_state_file_is_valid_json_after_atomic_save(self):
         self.state.mark_sending(self.key, "cover")
 
