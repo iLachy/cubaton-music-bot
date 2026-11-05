@@ -1868,7 +1868,7 @@ def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton, publica
                 publication_state,
                 song_key,
             )
-        return False, f"No se pudo descargar la portada: {error}"
+        return False, None, f"No se pudo descargar la portada: {error}"
 
     publication_state.mark_sending(song_key, "cover")
     try:
@@ -2010,6 +2010,7 @@ def publicar_cancion(
             )
         return (
             False,
+            None,
             "No se pudo identificar el album.id de la canción; "
             "no se puede obtener la portada mediante get_album()."
         )
@@ -2027,6 +2028,7 @@ def publicar_cancion(
         if not datos_album:
             return (
                 False,
+                None,
                 f"get_album() no devolvió datos para {album_browse_id}."
             )
 
@@ -2035,6 +2037,7 @@ def publicar_cancion(
         if not thumbnails:
             return (
                 False,
+                None,
                 f"El álbum {album_browse_id} no contiene thumbnails."
             )
 
@@ -2049,6 +2052,7 @@ def publicar_cancion(
         if not thumbnails_validas:
             return (
                 False,
+                None,
                 f"El álbum {album_browse_id} no contiene thumbnails válidas."
             )
 
@@ -2098,6 +2102,7 @@ def publicar_cancion(
     except Exception as error:
         return (
             False,
+            None,
             f"No se pudo preparar la portada de YouTube Music mediante get_album(): {error}"
         )
 
