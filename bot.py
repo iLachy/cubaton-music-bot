@@ -27,6 +27,9 @@ from config import (
     STATE_FILE,
 )
 from artists import ARTISTAS
+from logging_setup import get_logger
+
+log = get_logger("bot")
 
 
 # ============================================================
@@ -134,11 +137,8 @@ def cargar_estado():
             return None
 
         if estado.get("version") != ESTADO_VERSION:
-            print("Estado antiguo detectado.")
-            print(
-                "Se reconstruirá la línea base "
-                "con el nuevo sistema."
-            )
+            log.warning("Estado antiguo detectado.")
+            log.warning("Se reconstruirá la línea base con el nuevo sistema.")
             return None
 
         canciones = estado.get(
@@ -156,9 +156,7 @@ def cargar_estado():
 
     except Exception as error:
 
-        print(
-            f"No se pudo cargar el estado: {error}"
-        )
+        log.error("No se pudo cargar el estado: %s", error)
 
         return None
 
@@ -191,7 +189,7 @@ def guardar_estado(estado):
             datos,
             archivo,
             ensure_ascii=False,
-            indent=2
+            separators=(",", ":"),
         )
 
 
