@@ -2794,6 +2794,15 @@ def main():
         ]
     )
 
+    # Estado independiente de cada mensaje de Telegram.
+    # Si está corrupto o es incompatible, detenerse: no reconstruirlo.
+    try:
+        publication_state = TelegramMessageState()
+    except PublicationStateError as error:
+        log.critical("Estado de publicaciones no seguro: %s", error)
+        raise SystemExit(1)
+
+
     print()
 
     print(
@@ -2971,110 +2980,141 @@ def main():
     print()
 
     # ========================================================
-    # PUBLICAR
+    # PUBLICAR / REANUDAR
     # ========================================================
 
     publicadas = 0
     errores = 0
 
-    for numero, cancion in enumerate(
-        nuevas_canciones,
-        start=1
-    ):
+    for numero, cancion in enumerate(nuevas_canciones, start=1):
+        print(f"[PUBLICACIÓN {numero}/{len(nuevas_canciones)}]")
+        print(f"Artista(s): {cancion['artistas']}")
+        print(f"Canción: {cancion['titulo']}")
+        print(f"Lanzamiento: {cancion['nombre_publicacion']}")
+        print(f"Año: {cancion['anio']}")
 
-        print(
-            f"[PUBLICACIÓN "
-            f"{numero}/"
-            f"{len(nuevas_canciones)}]"
-        )
-
-        print(
-            f"Artista(s): "
-            f"{cancion['artistas']}"
-        )
-
-        print(
-            f"Canción: "
-            f"{cancion['titulo']}"
-        )
-
-        print(
-            f"Lanzamiento: "
-            f"{cancion['nombre_publicacion']}"
-        )
-
-        print(
-            f"Año: "
-            f"{cancion['anio']}"
-        )
-
-        # El preview se busca antes de publicar: si no hay preview,
-        # el botón de YouTube Music va en el post principal.
-        preview = None
-        if ENVIAR_PREVIEW_AUDIO:
-            preview = buscar_preview(cancion)
-
-        exito, error = (
-            publicar_cancion(
-                ytmusic,
-                cancion,
-                con_boton=(BOTON_EN_POST or preview is None),
-            )
-        )
-
-        if exito:
-
-            print(
-                "PUBLICADA "
-                "CORRECTAMENTE"
+        song_key = clave_cancion(cancion)
+        try:
+            publication_state.ensure_song(
+                song_key,
+                song_id=cancion.get("id"),
+                title=cancion.get("titulo"),
+                artists=cancion.get("artistas"),
+                video_id=cancion.get("video_id"),
             )
 
-            # Solo se registra después
-            # de confirmarse la publicación.
-            canciones_publicadas.add(
-                cancion["id"]
-            )
-            registrar_claves_cancion(
-                canciones_publicadas,
-                cancion,
-            )
+            cover_step = publication_state.get_step(song_key, "cover")
+            preview_step = publication_state.get_step(song_key, "preview")
 
-            # Guardado inmediato.
-            guardar_estado(
-                estado
+            # Un envío desconocido no se reintenta: podría duplicar un
+            # mensaje que Telegram sí recibió antes de perderse la respuesta.
+            unknown_steps = [
+                name for name, step in (
+                    ("portada", cover_step),
+                    ("preview", preview_step),
+                )
+                if step.get("status") == "unknown"
+            ]
+            if unknown_steps:
+                detalle = (
+                    "Estado de envío desconocido para: "
+                    + ", ".join(unknown_steps)
+                    + ". Revisar el canal antes de autorizar un reintento."
+                )
+                print(f"PUBLICACIÓN BLOQUEADA: {detalle}")
+                errores += 1
+                enviar_alerta_error(cancion, "Revisión de publicación", detalle)
+                continue
+
+            # Buscar el preview solo si aún no está resuelto.
+            preview = None
+            if preview_step.get("status") in ("pending", "failed"):
+                if ENVIAR_PREVIEW_AUDIO:
+                    preview = buscar_preview(cancion)
+                    if preview is None:
+                        publication_state.mark_not_available(
+                            song_key,
+                            "preview",
+                            "No se encontró un preview disponible en Apple Music ni Deezer.",
+                        )
+                else:
+                    publication_state.mark_not_available(
+                        song_key,
+                        "preview",
+                        "El envío de previews está desactivado en config.py.",
+                    )
+
+            # Si el preview ya fue enviado o se determinó que no existe,
+            # no hace falta volver a buscarlo.
+            preview_step = publication_state.get_step(song_key, "preview")
+            preview_disponible = (
+                preview is not None
+                or preview_step.get("status") == "sent"
             )
+            cover_step = publication_state.get_step(song_key, "cover")
 
-            publicadas += 1
+            if cover_step.get("status") != "sent":
+                exito, cover_message_id, error = publicar_cancion(
+                    ytmusic,
+                    cancion,
+                    con_boton=(BOTON_EN_POST or not preview_disponible),
+                    publication_state=publication_state,
+                    song_key=song_key,
+                )
+                if not exito:
+                    print("ERROR AL PUBLICAR LA PORTADA")
+                    print(error)
+                    errores += 1
+                    enviar_alerta_error(cancion, "Publicación de portada", error)
+                    continue
+                print(f"Portada publicada. message_id={cover_message_id}")
+            else:
+                print(
+                    "Portada ya publicada; se conserva message_id="
+                    f"{cover_step.get('message_id')}. No se duplica."
+                )
 
-            # Adelanto de audio justo debajo de la publicación.
-            # Orden garantizado: Post -> Audio -> siguiente Post -> Audio.
-            # Todo se envía de forma secuencial, una canción a la vez.
-            if preview:
-                enviar_preview_audio(cancion, preview)
+            # El preview se envía únicamente si todavía no se ha enviado.
+            preview_step = publication_state.get_step(song_key, "preview")
+            if preview is not None and preview_step.get("status") != "sent":
+                exito, preview_message_id, error = enviar_preview_audio(
+                    cancion,
+                    preview,
+                    publication_state,
+                    song_key,
+                )
+                if not exito:
+                    print("ERROR AL PUBLICAR EL PREVIEW")
+                    print(error)
+                    errores += 1
+                    enviar_alerta_error(cancion, "Publicación de preview", error)
+                    continue
+                print(f"Preview publicado. message_id={preview_message_id}")
+            elif preview_step.get("status") == "sent":
+                print(
+                    "Preview ya publicado; se conserva message_id="
+                    f"{preview_step.get('message_id')}. No se duplica."
+                )
+
+            # La canción solo entra en el estado de deduplicación cuando
+            # portada y preview están resueltos (enviado/no disponible).
+            if publication_state.is_song_complete(song_key):
+                canciones_publicadas.add(cancion["id"])
+                registrar_claves_cancion(canciones_publicadas, cancion)
+                guardar_estado(estado)
+                publicadas += 1
+                print("PUBLICACIÓN COMPLETA Y ESTADO GUARDADO.")
+            else:
+                errores += 1
+                print("PUBLICACIÓN INCOMPLETA: se reanudará en el próximo ciclo.")
 
             time.sleep(PAUSA_ENTRE_PUBLICACIONES)
 
-        else:
-
-            print(
-                "ERROR AL PUBLICAR"
-            )
-
-            print(
-                error
-            )
-
+        except PublicationStateError as error:
+            log.exception("Error en estado granular de %s", song_key)
             errores += 1
-
-            enviar_alerta_error(
-                cancion,
-                "Publicación en Telegram",
-                error,
-            )
-
-            # No se registra.
-            # Se reintentará en la próxima
-            # ejecución.
+            enviar_alerta_error(cancion, "Estado granular de publicación", str(error))
+            continue
 
         print()
 
