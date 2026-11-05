@@ -24,6 +24,7 @@ cubaton-music-bot/
 ├── bot.py                      # Orquestador principal
 ├── config.py                   # Configuración centralizada
 ├── artists.py                  # Lista de artistas monitorizados
+├── logging_setup.py            # Logging estructurado (INFO/WARNING/ERROR)
 ├── apple_music_search.py       # Búsqueda de previews en Apple Music
 ├── youtube_music_search.py     # Búsqueda en YouTube Music
 ├── deezer_extractor.py         # Extracción de datos de Deezer
@@ -62,6 +63,16 @@ El canal de publicación está fijado en `config.py` como `@Cubaton_Music`.
 | `BUSCAR_COLABORACIONES`       | Buscar colaboraciones en otros canales           | `False`           |
 | `BUSCAR_EN_DEEZER`            | Detectar también en Deezer                       | `False`           |
 
+### Logging
+
+Puedes controlar el nivel de log con la variable de entorno `LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Por defecto es `INFO`.
+
+```python
+from logging_setup import get_logger
+log = get_logger(__name__)
+log.info("Bot iniciado")
+```
+
 ---
 
 ## Añadir un artista nuevo
@@ -96,6 +107,7 @@ pip install -r requirements.txt
 export TELEGRAM_BOT_TOKEN="tu_token"
 # opcional:
 export TELEGRAM_CHAT_ID="tu_chat_id_de_alertas"
+export LOG_LEVEL=INFO
 
 python bot.py
 ```
@@ -122,6 +134,7 @@ Dentro del job corre un ciclo de ~5 h 35 min que lanza el bot cada 5 minutos y, 
 | `telegram_formatter.py`   | Genera los mensajes a partir de un JSON de datos |
 | `telegram_publisher.py`   | Publica mensajes ya formateados (soporta reanudación) |
 | `publication_state.py`    | Lógica de estado de portada/preview              |
+| `logging_setup.py`        | Configuración de logging estructurado            |
 | `deezer_debug.py`         | Utilidad de depuración de Deezer                 |
 
 ---
