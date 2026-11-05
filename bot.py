@@ -2958,6 +2958,28 @@ def main():
         guardar_estado(estado)
 
     # ========================================================
+    # RECUPERAR PUBLICACIONES INCOMPLETAS
+    # ========================================================
+
+    claves_detectadas = {
+        clave_cancion(cancion)
+        for cancion in nuevas_canciones
+    }
+    reanudadas = 0
+    for clave_pendiente, datos_guardados in publication_state.incomplete_songs():
+        if clave_pendiente in claves_detectadas:
+            continue
+        nuevas_canciones.append(datos_guardados)
+        claves_detectadas.add(clave_pendiente)
+        reanudadas += 1
+
+    if reanudadas:
+        print(
+            f"Se recuperan {reanudadas} publicación(es) incompleta(s) "
+            "desde el estado persistente."
+        )
+
+    # ========================================================
     # RESULTADO DEL DETECTOR
     # ========================================================
 
@@ -3006,6 +3028,7 @@ def main():
                 title=cancion.get("titulo"),
                 artists=cancion.get("artistas"),
                 video_id=cancion.get("video_id"),
+                song_data=cancion,
             )
 
             cover_step = publication_state.get_step(song_key, "cover")
