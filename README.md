@@ -34,7 +34,12 @@ Los estados de cada paso son `pending`, `sending`, `sent`, `failed`, `unknown` o
 
 **Reanudación normal:** si la portada ya se publicó y el preview falló, el siguiente ciclo conserva el `message_id` de la portada y vuelve a intentar únicamente el preview. La canción no se incorpora al registro de canciones completadas hasta que ambos pasos estén resueltos.
 
-**Envío ambiguo:** si el proceso se interrumpe durante una petición o se pierde la respuesta de Telegram, el paso pasa a `unknown`. No se reenvía automáticamente, porque Telegram podría haber recibido el mensaje. Antes de reintentar, hay que comprobar el canal y resolver manualmente ese registro.
+**Envío ambiguo:** si el proceso se interrumpe durante una petición o se pierde la respuesta de Telegram, el paso pasa a `unknown`. No se reenvía automáticamente, porque Telegram podría haber recibido el mensaje. Antes de reintentar, hay que comprobar el canal y resolver manualmente ese registro. En `state/telegram_messages.json`, dentro de la canción y del paso afectado:
+
+- Si el mensaje sí aparece en el canal, cambiar `status` a `"sent"` y escribir su `message_id` numérico en ese mismo objeto.
+- Si se confirma que el mensaje no fue publicado, cambiar `status` a `"failed"`, dejar `message_id` en `null` y guardar una explicación en `error`. El bot podrá reintentarlo en el siguiente ciclo.
+
+No cambiar un estado `unknown` sin comprobar primero el canal.
 
 Ambos archivos se escriben mediante reemplazo atómico. Si un archivo de estado existente está corrupto o tiene una versión incompatible, el bot se detiene: no crea una línea base nueva ni sobrescribe el estado dudoso.
 
