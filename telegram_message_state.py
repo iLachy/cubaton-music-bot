@@ -128,6 +128,7 @@ class TelegramMessageState:
         title: str | None = None,
         artists: str | None = None,
         video_id: str | None = None,
+        song_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(song_key, str) or not song_key.strip():
             raise ValueError("song_key debe ser una cadena no vacía.")
@@ -138,6 +139,7 @@ class TelegramMessageState:
                 "title": title,
                 "artists": artists,
                 "video_id": video_id,
+                "song_data": song_data,
                 "cover": _new_step(),
                 "preview": _new_step(),
                 "created_at": _now(),
@@ -153,6 +155,8 @@ class TelegramMessageState:
             song["title"] = title or song.get("title")
             song["artists"] = artists or song.get("artists")
             song["video_id"] = video_id or song.get("video_id")
+            if song_data is not None:
+                song["song_data"] = song_data
             song["updated_at"] = _now()
         self._save()
         return song
@@ -229,3 +233,13 @@ class TelegramMessageState:
             name for name in STEP_NAMES
             if self.get_step(song_key, name)["status"] in ("pending", "failed")
         ]
+
+    def incomplete_songs(self) -> list[tuple[str, dict[str, Any]]]:
+        """Devuelve canciones no completadas con sus metadatos para reanudarlas."""
+        result = []
+        for song_key, song in self.data["songs"].items():
+            if not self.is_song_complete(song_key):
+                metadata = song.get("song_data")
+                if isinstance(metadata, dict):
+                    result.append((song_key, metadata))
+        return result
