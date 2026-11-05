@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs y temporales
+*.log
+*.tmp
+.cache/
+
+# Estado local de prueba (el de producción vive en state/ y data/)
+# No ignores state/ ni data/ si quieres que Actions persista el estado en el repo.
+
+# Empaquetado
+dist/
+build/
+*.egg-info/
