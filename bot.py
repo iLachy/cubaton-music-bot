@@ -1604,7 +1604,10 @@ def enviar_sin_portada(caption, reply_markup, publication_state, song_key):
         )
         if not respuesta.ok:
             detalle = respuesta.text
-            publication_state.mark_failed(song_key, "cover", detalle)
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "cover", detalle)
+            else:
+                publication_state.mark_failed(song_key, "cover", detalle)
             return False, None, detalle
         datos = respuesta.json()
         if not datos.get("ok"):
@@ -1775,7 +1778,7 @@ def buscar_preview(cancion):
 def enviar_preview_audio(cancion, preview, publication_state, song_key):
     """
     Envía el preview como audio justo debajo de la publicación.
-    Nunca lanza errores ni afecta al estado: si falla, solo lo informa.
+    Registra el estado y el message_id; los errores ambiguos quedan bloqueados.
     Si Telegram pide esperar (error 429), espera y reintenta una vez.
     """
     teclado = json.dumps(
@@ -1824,8 +1827,11 @@ def enviar_preview_audio(cancion, preview, publication_state, song_key):
 
         if not respuesta.ok:
             detalle = respuesta.text
-            publication_state.mark_failed(song_key, "preview", detalle)
-            print(f"Preview: Telegram rechazó el audio: {detalle}")
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "preview", detalle)
+            else:
+                publication_state.mark_failed(song_key, "preview", detalle)
+            print(f"Preview: Telegram respondió con error al audio: {detalle}")
             return False, None, detalle
 
         datos = respuesta.json()
@@ -1900,7 +1906,10 @@ def _publicar_con_portada_url(cancion, caption, reply_markup, con_boton, publica
         )
         if not respuesta.ok:
             detalle = respuesta.text
-            publication_state.mark_failed(song_key, "cover", detalle)
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "cover", detalle)
+            else:
+                publication_state.mark_failed(song_key, "cover", detalle)
             return False, None, detalle
         datos = respuesta.json()
         if not datos.get("ok"):
@@ -2141,7 +2150,10 @@ def publicar_cancion(
 
         if not respuesta.ok:
             detalle = respuesta.text
-            publication_state.mark_failed(song_key, "cover", detalle)
+            if respuesta.status_code >= 500:
+                publication_state.mark_unknown(song_key, "cover", detalle)
+            else:
+                publication_state.mark_failed(song_key, "cover", detalle)
             return False, None, detalle
 
         datos = respuesta.json()
