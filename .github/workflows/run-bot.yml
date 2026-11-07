@@ -1,17 +1,13 @@
 name: Cubaton Music Bot
 
 on:
-  schedule:
-    # Red de seguridad: si el ciclo continuo se interrumpe, se reinicia solo.
-    - cron: "17 * * * *"
-
+  # El bot solo se inicia manualmente mientras se realizan pruebas.
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write
 
-# Solo un ciclo a la vez. Si hay uno en marcha, el siguiente espera su turno.
+# Evita ciclos simultáneos. Las ejecuciones manuales adicionales esperan su turno.
 concurrency:
   group: cubaton-music-bot
   cancel-in-progress: false
@@ -24,7 +20,6 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Descargar repositorio
@@ -120,9 +115,6 @@ jobs:
             if [ "$ESPERA" -lt 30 ]; then ESPERA=30; fi
             sleep "$ESPERA"
           done
-
-          # Relanza el ciclo antes de terminar.
-          gh workflow run "Cubaton Music Bot" --ref "$BRANCH"
 
       - name: Guardar estado pendiente
         if: always()
